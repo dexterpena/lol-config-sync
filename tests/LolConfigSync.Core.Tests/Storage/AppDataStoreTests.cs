@@ -92,6 +92,27 @@ public sealed class AppDataStoreTests : IDisposable
     }
 
     [Fact]
+    public void Backups_are_saved_under_the_accounts_nickname()
+    {
+        var path = Store.SaveBackup(Snapshot("puuid-123", DateTimeOffset.UnixEpoch)); // RiotId "puuid-123#NA1"
+
+        Assert.Equal(Path.Combine(_root, "backups", "puuid-123#NA1"), Path.GetDirectoryName(path));
+    }
+
+    [Theory]
+    [InlineData("Bad:Name?#EUW", "Bad_Name_#EUW")]
+    [InlineData("", "puuid-x")]
+    [InlineData("  ", "puuid-x")]
+    public void Nickname_folder_is_made_safe_and_falls_back_to_account_id(string riotId, string expectedFolder)
+    {
+        var snapshot = new SetupSnapshot { CapturedFromPuuid = "puuid-x", CapturedFromRiotId = riotId, CapturedAt = DateTimeOffset.UnixEpoch };
+
+        var path = Store.SaveBackup(snapshot);
+
+        Assert.Equal(expectedFolder, Path.GetFileName(Path.GetDirectoryName(path)));
+    }
+
+    [Fact]
     public void Saving_main_setup_keeps_previous_copy()
     {
         Store.SaveMainSetup(Snapshot("first", DateTimeOffset.UnixEpoch));

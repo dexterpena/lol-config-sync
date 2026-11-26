@@ -10,7 +10,7 @@ It only talks to the League client's local API (`127.0.0.1`) and the files in `L
 2. **Every login after that:** the app waits until you're out of a game, backs up the account's current settings, then applies your main setup. A tray notification confirms it.
 3. **When you change something** in the client or in a game (hotkeys, HUD, volume, runes…), the app copies the change into the main setup a few seconds later, so the next account gets it too.
 4. **Pick what syncs:** the main window has a toggle for each group. In **Edit setup** you can change any value or uncheck **Sync** on a single setting so it stays different per account.
-5. **Backups:** each account is backed up right before the app changes it. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
+5. **Backups:** before the app changes anything in the client, it backs up that account's current settings into a folder named after its Riot ID (for example `data\backups\Fiebre#L4N\`). If the backup can't be saved, nothing is changed. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
 
 **Rune pages and Porofessor:** one rune page slot on every account is always left empty so Porofessor can create its page in champ select. Pages whose names start with `Porofessor` or `Poro` are never synced. If one is sitting in the free slot when a sync needs to rewrite your pages, it's cleared, and Porofessor makes a new one next champ select. Both are adjustable in `settings.json` (`ReservedRunePageSlots`, `ToolRunePagePrefixes`), for example if Porofessor names its pages differently.
 
@@ -30,7 +30,7 @@ There are two downloads. Neither needs .NET installed.
 Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`). Building the installer also needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`).
 
 ```powershell
-dotnet test                                   # 147 unit tests (Core)
+dotnet test                                   # 152 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
 powershell -ExecutionPolicy Bypass -File build\package.ps1   # tests, then both downloads into .\dist
 ```
@@ -45,7 +45,7 @@ The app is portable. Everything it saves goes in a `data` folder next to `LolCon
 |------|-------|
 | Main setup | `main-setup.json` (previous version in `main-setup.prev.json`) |
 | App settings (toggles, per-setting exclusions) | `settings.json` |
-| Account backups | `backups\<account>\` (`original.json` is never pruned) |
+| Account backups | `backups\<Riot ID>\` (`original.json` is never pruned) |
 | Log | `log.txt` |
 | Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `LolConfigSync` (updated to the exe's current location on every launch) |
 

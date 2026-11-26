@@ -345,7 +345,19 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         SetStatus(SyncState.Syncing, account);
 
         var (backup, unreadable, warnings) = await CaptureAsync(gateway, account, ct).ConfigureAwait(false);
-        store.SaveBackup(backup);
+        try
+        {
+            store.SaveBackup(backup);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Never change an account we couldn't back up first.
+            FileLog.Error($"Backup for {account.RiotId} failed; nothing was changed", e);
+            SetStatus(SyncState.Error, account,
+                warnings: [$"Couldn't save a backup of {account.RiotId}'s settings, so nothing was changed. {e.Message}"]);
+            Notify?.Invoke($"Didn't sync {account.RiotId}: couldn't save a backup first");
+            return;
+        }
         var pushed = new HashSet<SyncSection>();
 
         bool Skipped(Part part, string label)

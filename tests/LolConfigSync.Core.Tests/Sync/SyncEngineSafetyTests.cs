@@ -48,6 +48,23 @@ public sealed class SyncEngineSafetyTests : IDisposable
         Assert.Equal(["Edited", "Second", "Third"], MainPageNames());
     }
 
+    // Backup before any change
+    [Fact]
+    public async Task Nothing_is_changed_when_the_backup_cannot_be_saved()
+    {
+        _h.SeedMainSetup();
+        File.WriteAllText(Path.Combine(_h.Store.RootDir, "backups"), "not a folder"); // makes saving a backup fail
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        _h.Video.Values = Obj("""{"Performance":{"ShadowQuality":"1"}}""");
+
+        await _h.Engine.OnConnectedAsync(gw, default);
+
+        Assert.Empty(gw.Calls);
+        Assert.Equal(0, _h.Video.Writes);
+        Assert.Equal(SyncState.Error, _h.Engine.Status.State);
+        Assert.Contains(_h.Engine.Status.Warnings, w => w.Contains("backup"));
+    }
+
     // Porofessor
     [Fact]
     public async Task Push_always_leaves_one_rune_slot_free()

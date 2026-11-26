@@ -95,7 +95,7 @@ public sealed class AppDataStore(string rootDir)
     /// </summary>
     public string SaveBackup(SetupSnapshot snapshot)
     {
-        var dir = System.IO.Path.Combine(BackupsDir, SafeName(snapshot.CapturedFromPuuid));
+        var dir = System.IO.Path.Combine(BackupsDir, BackupFolderName(snapshot));
         var original = System.IO.Path.Combine(dir, OriginalBackupName);
         if (!File.Exists(original)) WriteAtomic(original, snapshot);
 
@@ -162,9 +162,13 @@ public sealed class AppDataStore(string rootDir)
         File.Move(tmp, path, overwrite: true);
     }
 
-    private static string SafeName(string puuid)
+    /// <summary>Backups are filed under the account's nickname (Riot ID); the account id is the fallback.</summary>
+    private static string BackupFolderName(SetupSnapshot snapshot) =>
+        SafeName(string.IsNullOrWhiteSpace(snapshot.CapturedFromRiotId) ? snapshot.CapturedFromPuuid : snapshot.CapturedFromRiotId.Trim());
+
+    private static string SafeName(string text)
     {
-        var name = string.Concat(puuid.Select(c => System.IO.Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var name = string.Concat(text.Select(c => System.IO.Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)).Trim().TrimEnd('.');
         return name.Length == 0 ? "unknown" : name;
     }
 }
