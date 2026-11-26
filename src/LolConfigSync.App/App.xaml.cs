@@ -195,6 +195,12 @@ public partial class App : Application, IAppShell
         ShowChild(backups);
     }
 
+    public void OpenFolder(string path)
+    {
+        Directory.CreateDirectory(path);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+    }
+
     private void ShowChild(Window child)
     {
         if (_window is { IsVisible: true })

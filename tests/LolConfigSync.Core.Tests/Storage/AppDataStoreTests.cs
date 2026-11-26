@@ -108,12 +108,34 @@ public sealed class AppDataStoreTests : IDisposable
     public void Data_dir_override_means_sandbox(string? overrideDir, bool expected) =>
         Assert.Equal(expected, AppDataStore.IsSandbox(overrideDir));
 
+    private const string AppDir = @"E:\Games\LolConfigSync";
+
     [Fact]
-    public void Data_dir_override_wins_over_appdata()
+    public void Data_lives_next_to_the_program_when_writable() =>
+        Assert.Equal(Path.Combine(AppDir, "data"), AppDataStore.ResolveRoot(null, AppDir, _ => true));
+
+    [Fact]
+    public void Falls_back_to_appdata_when_program_folder_is_read_only()
     {
-        Assert.Equal(_root, AppDataStore.ResolveRoot(_root));
-        Assert.EndsWith("LolConfigSync", AppDataStore.ResolveRoot(null));
-        Assert.EndsWith("LolConfigSync", AppDataStore.ResolveRoot("  "));
+        var root = AppDataStore.ResolveRoot(null, @"C:\Program Files\LolConfigSync", _ => false);
+
+        Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolConfigSync"), root);
+    }
+
+    [Fact]
+    public void Data_dir_override_wins_over_program_folder()
+    {
+        Assert.Equal(_root, AppDataStore.ResolveRoot(_root, AppDir, _ => true));
+        Assert.Equal(Path.Combine(AppDir, "data"), AppDataStore.ResolveRoot("  ", AppDir, _ => true));
+    }
+
+    [Fact]
+    public void Writable_check_is_true_for_temp_and_creates_nothing_extra()
+    {
+        var dir = Path.Combine(_root, "probe");
+
+        Assert.True(AppDataStore.CanWriteTo(dir));
+        Assert.Empty(Directory.GetFiles(dir));
     }
 
     [Fact]

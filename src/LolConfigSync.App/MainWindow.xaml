@@ -131,5 +131,11 @@
         </DockPanel>
         <TextBlock Style="{StaticResource MutedText}" Margin="0,14,0,0"
                    Text="Closing this window keeps syncing in the background. Quit from the tray icon." />
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <Button Style="{StaticResource HexLinkButton}" Content="Open data folder" Command="{Binding OpenDataFolderCommand}"
+                    ToolTip="{Binding DataFolder}" />
+            <TextBlock Style="{StaticResource MutedText}" Margin="8,0,0,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                       MaxWidth="440" Text="{Binding DataFolder}" ToolTip="{Binding DataFolder}" />
+        </StackPanel>
     </StackPanel>
 </controls:HexWindow>

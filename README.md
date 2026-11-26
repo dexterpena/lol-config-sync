@@ -21,7 +21,7 @@ If you'd previously made `PersistedSettings.json` read-only to stop League overw
 Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`).
 
 ```powershell
-dotnet test                                   # 135 unit tests (Core)
+dotnet test                                   # 138 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
 dotnet publish src/LolConfigSync.App -c Release
 ```
@@ -30,13 +30,15 @@ Publishing produces a single `LolConfigSync.exe` in `src/LolConfigSync.App/bin/R
 
 ## Where things live
 
-| What | Where |
+The app is portable. Everything it saves goes in a `data` folder next to `LolConfigSync.exe`, so moving or copying the program folder carries your setup with it. If the program sits somewhere Windows won't let it write (like `Program Files`), it uses `%APPDATA%\LolConfigSync` instead. The main window shows the folder in use and has an **Open data folder** link.
+
+| What | Where (inside the data folder) |
 |------|-------|
-| Main setup | `%APPDATA%\LolConfigSync\main-setup.json` |
-| App settings (toggles, per-setting exclusions) | `%APPDATA%\LolConfigSync\settings.json` |
-| Account backups | `%APPDATA%\LolConfigSync\backups\<account>\` |
-| Log | `%APPDATA%\LolConfigSync\log.txt` |
-| Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `LolConfigSync` |
+| Main setup | `main-setup.json` (previous version in `main-setup.prev.json`) |
+| App settings (toggles, per-setting exclusions) | `settings.json` |
+| Account backups | `backups\<account>\` (`original.json` is never pruned) |
+| Log | `log.txt` |
+| Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `LolConfigSync` (updated to the exe's current location on every launch) |
 
 Setting `LOLCONFIGSYNC_DATA_DIR` runs the app in **sandbox mode**: all data goes to that folder, and the app never connects to the League client, never edits League's files and never touches the Run key. Use it to try the UI safely.
 
@@ -45,7 +47,7 @@ Setting `LOLCONFIGSYNC_DATA_DIR` runs the app in **sandbox mode**: all data goes
 1. Quit from the tray icon.
 2. Untick **Start with Windows** first, or delete the `LolConfigSync` value under the Run key above.
 3. Optionally restore an account from **Backups** before quitting.
-4. Delete `%APPDATA%\LolConfigSync`.
+4. Delete the program folder (which includes its `data` folder), and `%APPDATA%\LolConfigSync` if that was used.
 
 ## Project layout
 

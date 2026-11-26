@@ -28,16 +28,45 @@ public sealed class AppDataStore(string rootDir)
     /// </summary>
     public const string DataDirVariable = "LOLCONFIGSYNC_DATA_DIR";
 
-    public static string DefaultRoot => ResolveRoot(Environment.GetEnvironmentVariable(DataDirVariable));
+    /// <summary>Folder next to the program that holds its data, so a portable copy carries its setup with it.</summary>
+    public const string PortableFolderName = "data";
+
+    /// <summary>
+    /// Where data lives: the sandbox override if set, else a <c>data</c> folder next to the program,
+    /// else (when the program folder isn't writable, e.g. Program Files) <c>%APPDATA%\LolConfigSync</c>.
+    /// </summary>
+    public static string DefaultRoot =>
+        ResolveRoot(Environment.GetEnvironmentVariable(DataDirVariable), AppContext.BaseDirectory, CanWriteTo);
 
     public static bool IsSandboxed => IsSandbox(Environment.GetEnvironmentVariable(DataDirVariable));
 
     public static bool IsSandbox(string? overrideDir) => !string.IsNullOrWhiteSpace(overrideDir);
 
-    public static string ResolveRoot(string? overrideDir) =>
-        string.IsNullOrWhiteSpace(overrideDir)
-            ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolConfigSync")
-            : overrideDir;
+    public static string ResolveRoot(string? overrideDir, string appDir, Func<string, bool> canWriteTo)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideDir)) return overrideDir;
+        var portable = System.IO.Path.Combine(appDir, PortableFolderName);
+        return canWriteTo(portable)
+            ? portable
+            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolConfigSync");
+    }
+
+    /// <summary>True when <paramref name="dir"/> exists (or can be created) and a file can be written there.</summary>
+    public static bool CanWriteTo(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var probe = System.IO.Path.Combine(dir, $".write-test-{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     public string RootDir { get; } = rootDir;
     private string MainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.json");

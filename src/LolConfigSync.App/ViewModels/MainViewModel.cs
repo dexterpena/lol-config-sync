@@ -80,6 +80,7 @@ public sealed class MainViewModel : ObservableObject
         }, () => HasAccount, onError);
         EditCommand = new RelayCommand(() => { shell.ShowEditor(); ReloadSettings(); }, () => HasMainSetup);
         BackupsCommand = new RelayCommand(shell.ShowBackups);
+        OpenDataFolderCommand = new RelayCommand(() => shell.OpenFolder(_store.RootDir));
 
         _host.Engine.StatusChanged += _ => _dispatcher.BeginInvoke(Refresh);
         _clock = new DispatcherTimer(TimeSpan.FromSeconds(30), DispatcherPriority.Background, (_, _) => Refresh(), dispatcher);
@@ -95,6 +96,10 @@ public sealed class MainViewModel : ObservableObject
     public ICommand UseThisAccountCommand { get; }
     public ICommand EditCommand { get; }
     public ICommand BackupsCommand { get; }
+    public ICommand OpenDataFolderCommand { get; }
+
+    /// <summary>Where the main setup, settings and backups are stored.</summary>
+    public string DataFolder => _store.RootDir;
 
     public StatusTone Tone => _view.Tone;
     public string Headline => _view.Headline;
@@ -168,4 +173,5 @@ public interface IAppShell
     void ShowError(Exception e);
     void ShowEditor();
     void ShowBackups();
+    void OpenFolder(string path);
 }
