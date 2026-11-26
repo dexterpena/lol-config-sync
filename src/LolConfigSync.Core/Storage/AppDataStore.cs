@@ -5,7 +5,8 @@ using LolConfigSync.Core.Model;
 
 namespace LolConfigSync.Core.Storage;
 
-public sealed record BackupEntry(string Puuid, string RiotId, DateTimeOffset CreatedAt, string Path);
+/// <summary>One saved backup. <see cref="IsOriginal"/> marks the account's settings from before its first sync, which is never pruned.</summary>
+public sealed record BackupEntry(string Puuid, string RiotId, DateTimeOffset CreatedAt, string Path, bool IsOriginal = false);
 
 /// <summary>Persists the main setup, app settings and per-account backups under one root directory.</summary>
 public sealed class AppDataStore(string rootDir)
@@ -19,10 +20,19 @@ public sealed class AppDataStore(string rootDir)
         Converters = { new JsonStringEnumConverter() },
     };
 
-    /// <summary>Environment variable that redirects all app data (used for isolated testing or portable setups).</summary>
+    private const string OriginalBackupName = "original.json";
+
+    /// <summary>
+    /// Environment variable that redirects all app data to a sandbox folder. A sandboxed run never
+    /// connects to the League client and never touches the registry or League's files.
+    /// </summary>
     public const string DataDirVariable = "LOLCONFIGSYNC_DATA_DIR";
 
     public static string DefaultRoot => ResolveRoot(Environment.GetEnvironmentVariable(DataDirVariable));
+
+    public static bool IsSandboxed => IsSandbox(Environment.GetEnvironmentVariable(DataDirVariable));
+
+    public static bool IsSandbox(string? overrideDir) => !string.IsNullOrWhiteSpace(overrideDir);
 
     public static string ResolveRoot(string? overrideDir) =>
         string.IsNullOrWhiteSpace(overrideDir)
@@ -31,26 +41,42 @@ public sealed class AppDataStore(string rootDir)
 
     public string RootDir { get; } = rootDir;
     private string MainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.json");
+    private string PreviousMainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.prev.json");
     private string SettingsPath => System.IO.Path.Combine(RootDir, "settings.json");
     private string BackupsDir => System.IO.Path.Combine(RootDir, "backups");
 
     public SetupSnapshot? LoadMainSetup() => TryRead<SetupSnapshot>(MainSetupPath);
 
-    public void SaveMainSetup(SetupSnapshot snapshot) => WriteAtomic(MainSetupPath, snapshot);
+    /// <summary>The main setup as it was before the most recent save (a one-step undo).</summary>
+    public SetupSnapshot? LoadPreviousMainSetup() => TryRead<SetupSnapshot>(PreviousMainSetupPath);
+
+    public void SaveMainSetup(SetupSnapshot snapshot)
+    {
+        if (File.Exists(MainSetupPath)) File.Copy(MainSetupPath, PreviousMainSetupPath, overwrite: true);
+        WriteAtomic(MainSetupPath, snapshot);
+    }
 
     public AppSettings LoadSettings() => TryRead<AppSettings>(SettingsPath) ?? new AppSettings();
 
     public void SaveSettings(AppSettings settings) => WriteAtomic(SettingsPath, settings);
 
-    /// <summary>Saves a backup named after <see cref="SetupSnapshot.CapturedAt"/> and prunes old ones for that account.</summary>
+    /// <summary>
+    /// Saves a backup named after <see cref="SetupSnapshot.CapturedAt"/> and prunes old ones for that account.
+    /// The account's very first backup is also pinned as its original and is never pruned.
+    /// </summary>
     public string SaveBackup(SetupSnapshot snapshot)
     {
         var dir = System.IO.Path.Combine(BackupsDir, SafeName(snapshot.CapturedFromPuuid));
+        var original = System.IO.Path.Combine(dir, OriginalBackupName);
+        if (!File.Exists(original)) WriteAtomic(original, snapshot);
+
         var name = snapshot.CapturedAt.UtcDateTime.ToString(BackupTimeFormat, CultureInfo.InvariantCulture);
         var path = System.IO.Path.Combine(dir, name + ".json");
         WriteAtomic(path, snapshot);
 
-        foreach (var old in Directory.GetFiles(dir, "*.json").OrderDescending(StringComparer.Ordinal).Skip(BackupsPerAccount))
+        var rotating = Directory.GetFiles(dir, "*.json")
+            .Where(f => !string.Equals(System.IO.Path.GetFileName(f), OriginalBackupName, StringComparison.OrdinalIgnoreCase));
+        foreach (var old in rotating.OrderDescending(StringComparer.Ordinal).Skip(BackupsPerAccount))
         {
             File.Delete(old);
         }
@@ -63,6 +89,14 @@ public sealed class AppDataStore(string rootDir)
         var entries = new List<BackupEntry>();
         foreach (var file in Directory.EnumerateFiles(BackupsDir, "*.json", SearchOption.AllDirectories))
         {
+            if (string.Equals(System.IO.Path.GetFileName(file), OriginalBackupName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryRead<SetupSnapshot>(file) is { } first)
+                {
+                    entries.Add(new BackupEntry(first.CapturedFromPuuid, first.CapturedFromRiotId, first.CapturedAt, file, IsOriginal: true));
+                }
+                continue;
+            }
             if (!DateTime.TryParseExact(System.IO.Path.GetFileNameWithoutExtension(file), BackupTimeFormat,
                     CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var created))
             {

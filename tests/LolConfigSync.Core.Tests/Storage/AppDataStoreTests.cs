@@ -69,10 +69,44 @@ public sealed class AppDataStoreTests : IDisposable
 
         var backups = Store.ListBackups();
 
-        Assert.Equal(10, backups.Count(b => b.Puuid == "A"));
-        Assert.Single(backups, b => b.Puuid == "B");
-        Assert.DoesNotContain(backups, b => b.Puuid == "A" && b.CreatedAt < t0.AddMinutes(2));
+        Assert.Equal(10, backups.Count(b => b.Puuid == "A" && !b.IsOriginal));
+        Assert.Single(backups, b => b.Puuid == "B" && !b.IsOriginal);
+        Assert.DoesNotContain(backups, b => b.Puuid == "A" && !b.IsOriginal && b.CreatedAt < t0.AddMinutes(2));
     }
+
+    [Fact]
+    public void First_backup_per_account_is_kept_forever()
+    {
+        var t0 = new DateTimeOffset(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
+        var first = Snapshot("A", t0);
+        first.GameSettings["HUD"]!["GlobalScale"] = 0.11;
+        Store.SaveBackup(first);
+        for (var i = 1; i <= 12; i++) Store.SaveBackup(Snapshot("A", t0.AddMinutes(i)));
+
+        var backups = Store.ListBackups();
+
+        var original = Assert.Single(backups, b => b.IsOriginal);
+        Assert.Equal(t0, original.CreatedAt);
+        Assert.Equal(0.11, Store.LoadBackup(original.Path).GameSettings["HUD"]!["GlobalScale"]!.GetValue<double>());
+        Assert.Equal(10, backups.Count(b => b.Puuid == "A" && !b.IsOriginal));
+    }
+
+    [Fact]
+    public void Saving_main_setup_keeps_previous_copy()
+    {
+        Store.SaveMainSetup(Snapshot("first", DateTimeOffset.UnixEpoch));
+        Store.SaveMainSetup(Snapshot("second", DateTimeOffset.UnixEpoch));
+
+        Assert.Equal("first#NA1", Store.LoadPreviousMainSetup()!.CapturedFromRiotId);
+        Assert.Equal("second#NA1", Store.LoadMainSetup()!.CapturedFromRiotId);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("  ", false)]
+    [InlineData(@"C:\sandbox", true)]
+    public void Data_dir_override_means_sandbox(string? overrideDir, bool expected) =>
+        Assert.Equal(expected, AppDataStore.IsSandbox(overrideDir));
 
     [Fact]
     public void Data_dir_override_wins_over_appdata()

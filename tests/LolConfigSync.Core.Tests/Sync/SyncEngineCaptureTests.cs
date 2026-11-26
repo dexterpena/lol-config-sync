@@ -171,7 +171,7 @@ public sealed class SyncEngineCaptureTests : IDisposable
     {
         var gw = await PushedAltAsync();
         _h.SetSettings(s => s.EnabledSections.Remove(SyncSection.Sound));
-        var altBackup = _h.Store.ListBackups().Single(b => b.Puuid == Alt.Puuid);
+        var altBackup = _h.Store.ListBackups().Single(b => b.Puuid == Alt.Puuid && !b.IsOriginal);
 
         await _h.Engine.RestoreBackupAsync(altBackup.Path, default);
 
@@ -185,7 +185,7 @@ public sealed class SyncEngineCaptureTests : IDisposable
     public async Task Restored_values_are_not_captured_back()
     {
         var gw = await PushedAltAsync();
-        await _h.Engine.RestoreBackupAsync(_h.Store.ListBackups().Single(b => b.Puuid == Alt.Puuid).Path, default);
+        await _h.Engine.RestoreBackupAsync(_h.Store.ListBackups().Single(b => b.Puuid == Alt.Puuid && !b.IsOriginal).Path, default);
 
         await _h.Engine.HandleLcuEventAsync(Event(GameUri, Obj("""{"HUD":{"GlobalScale":0.9}}""")), default);
         await AdvanceAndFlushAsync(TimeSpan.FromSeconds(4));

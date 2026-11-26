@@ -51,18 +51,18 @@ public partial class App : Application, IAppShell
         }
 
         var settings = _store.LoadSettings();
-        if (Environment.ProcessPath is { } exe)
+        if (!AppDataStore.IsSandboxed && Environment.ProcessPath is { } exe)
         {
             try { StartupRegistration.Apply(settings.StartWithWindows, exe); }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { FileLog.Error("Startup registration failed", ex); }
         }
 
-        _host = new AppHost(_store, installDir, TimeProvider.System);
-        _host.Engine.FirstRunPrompt = account => Dispatcher.InvokeAsync(() => HexDialog.Show(_window,
+        _host = new AppHost(_store, installDir, TimeProvider.System, connect: !AppDataStore.IsSandboxed);
+        _host.Engine.FirstRunPrompt = (account, cancel) => Dispatcher.InvokeAsync(() => HexDialog.Show(_window,
             "Use this account as your main setup?",
             $"{account.RiotId}'s keybinds, interface, camera and sound settings become the setup every account gets. " +
             "You can change it any time from the editor or pick another account later.",
-            "Use as main", "Not this one")).Task;
+            "Use as main", "Not this one", cancel)).Task;
         _host.Engine.Notify += message => Dispatcher.BeginInvoke(() => Notify(message));
 
         _vm = new MainViewModel(_host, _store, Dispatcher, this);

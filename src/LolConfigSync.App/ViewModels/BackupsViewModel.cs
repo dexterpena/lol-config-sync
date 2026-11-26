@@ -11,7 +11,9 @@ public sealed class BackupItem(BackupEntry entry)
 {
     public BackupEntry Entry { get; } = entry;
     public string RiotId => string.IsNullOrEmpty(Entry.RiotId) ? "Unknown account" : Entry.RiotId;
-    public string When => Entry.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt");
+    public string When => Entry.IsOriginal
+        ? $"Original settings ({Entry.CreatedAt.ToLocalTime():MMM d})"
+        : Entry.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt");
     public string Ago => StatusText.Ago(DateTimeOffset.Now - Entry.CreatedAt);
 }
 

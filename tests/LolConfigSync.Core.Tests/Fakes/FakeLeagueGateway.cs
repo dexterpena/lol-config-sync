@@ -25,10 +25,20 @@ public sealed class FakeLeagueGateway : ILeagueGateway
     public Account? Account { get; private set; }
     public FakeAccountState State { get; private set; } = new();
     public string Phase { get; set; } = "Lobby";
+    public bool SettingsReady { get; set; } = true;
     public List<string> Calls { get; } = [];
 
-    /// <summary>"game", "input", "save", "runes", "itemsets", "client": writes in these categories throw.</summary>
+    /// <summary>"game", "input", "save", "runes", "runes-create", "itemsets", "client": writes in these categories throw.</summary>
     public HashSet<string> FailingCategories { get; } = [];
+
+    /// <summary>"game", "input", "runes", "itemsets", "client": reads in these categories throw.</summary>
+    public HashSet<string> FailingReads { get; } = [];
+
+    /// <summary>"game", "input": the write succeeds but League doesn't keep the values.</summary>
+    public HashSet<string> IgnoredWrites { get; } = [];
+
+    /// <summary>When set, PATCH game waits on this (honoring cancellation) before applying.</summary>
+    public TaskCompletionSource? GamePatchGate { get; set; }
 
     public FakeLeagueGateway(Account? account = null, FakeAccountState? state = null)
     {
@@ -44,19 +54,29 @@ public sealed class FakeLeagueGateway : ILeagueGateway
 
     public Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default) => Task.FromResult(Account);
     public Task<string> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(Phase);
+    public Task<bool> IsGameSettingsReadyAsync(CancellationToken ct = default) => Task.FromResult(SettingsReady);
 
-    public Task<JsonObject> GetGameSettingsAsync(CancellationToken ct = default) => Task.FromResult((JsonObject)State.Game.DeepClone());
-    public Task<JsonObject> GetInputSettingsAsync(CancellationToken ct = default) => Task.FromResult((JsonObject)State.Input.DeepClone());
+    public Task<JsonObject> GetGameSettingsAsync(CancellationToken ct = default) => Read("game", () => (JsonObject)State.Game.DeepClone());
+    public Task<JsonObject> GetInputSettingsAsync(CancellationToken ct = default) => Read("input", () => (JsonObject)State.Input.DeepClone());
 
-    public Task PatchGameSettingsAsync(JsonObject settings, CancellationToken ct = default) =>
-        Write("game", $"PATCH game {settings.ToJsonString()}", () => SettingsDiff.MergeInto(State.Game, settings));
+    public async Task PatchGameSettingsAsync(JsonObject settings, CancellationToken ct = default)
+    {
+        if (GamePatchGate is not null) await GamePatchGate.Task.WaitAsync(ct);
+        await Write("game", $"PATCH game {settings.ToJsonString()}", () =>
+        {
+            if (!IgnoredWrites.Contains("game")) SettingsDiff.MergeInto(State.Game, settings);
+        });
+    }
 
     public Task PatchInputSettingsAsync(JsonObject settings, CancellationToken ct = default) =>
-        Write("input", $"PATCH input {settings.ToJsonString()}", () => SettingsDiff.MergeInto(State.Input, settings));
+        Write("input", $"PATCH input {settings.ToJsonString()}", () =>
+        {
+            if (!IgnoredWrites.Contains("input")) SettingsDiff.MergeInto(State.Input, settings);
+        });
 
     public Task SaveGameSettingsAsync(CancellationToken ct = default) => Write("save", "POST save", () => { });
 
-    public Task<JsonArray> GetEditableRunePagesAsync(CancellationToken ct = default) => Task.FromResult((JsonArray)State.Pages.DeepClone());
+    public Task<JsonArray> GetEditableRunePagesAsync(CancellationToken ct = default) => Read("runes", () => (JsonArray)State.Pages.DeepClone());
     public Task<int> GetRunePageCapacityAsync(CancellationToken ct = default) => Task.FromResult(State.Capacity);
 
     public Task DeleteRunePageAsync(long id, CancellationToken ct = default) =>
@@ -66,24 +86,30 @@ public sealed class FakeLeagueGateway : ILeagueGateway
             State.Pages.Remove(page);
         });
 
-    public Task CreateRunePageAsync(JsonObject page, CancellationToken ct = default) =>
-        Write("runes", $"POST rune {page["name"]}", () =>
+    public Task CreateRunePageAsync(JsonObject page, CancellationToken ct = default)
+    {
+        if (FailingCategories.Contains("runes-create")) throw new LcuException(500, "runes-create");
+        return Write("runes", $"POST rune {page["name"]}", () =>
         {
             var created = (JsonObject)page.DeepClone();
             created["id"] = _nextPageId++;
             State.Pages.Add(created);
         });
+    }
 
-    public Task<JsonArray> GetItemSetsAsync(Account account, CancellationToken ct = default) => Task.FromResult((JsonArray)State.ItemSets.DeepClone());
+    public Task<JsonArray> GetItemSetsAsync(Account account, CancellationToken ct = default) => Read("itemsets", () => (JsonArray)State.ItemSets.DeepClone());
 
     public Task PutItemSetsAsync(Account account, JsonArray sets, CancellationToken ct = default) =>
         Write("itemsets", $"PUT itemsets {account.SummonerId}", () => State.ItemSets = (JsonArray)sets.DeepClone());
 
     public Task<JsonObject?> GetClientSettingAsync(string category, CancellationToken ct = default) =>
-        Task.FromResult(State.Client.TryGetValue(category, out var v) ? (JsonObject?)v.DeepClone() : null);
+        Read("client", () => State.Client.TryGetValue(category, out var v) ? (JsonObject?)v.DeepClone() : null);
 
     public Task PatchClientSettingAsync(string category, JsonObject value, CancellationToken ct = default) =>
         Write("client", $"PATCH client {category}", () => State.Client[category] = (JsonObject)value.DeepClone());
+
+    private Task<T> Read<T>(string category, Func<T> read) =>
+        FailingReads.Contains(category) ? throw new LcuException(500, "read " + category) : Task.FromResult(read());
 
     private Task Write(string category, string call, Action apply)
     {

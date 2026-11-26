@@ -32,6 +32,12 @@ public class SettingsDiffTests
     }
 
     [Fact]
+    public void Numbers_compare_by_value_not_formatting() =>
+        Assert.Empty(SettingsDiff.Changes(
+            JsonNode.Parse("""{"HUD":{"A":1,"B":0.50}}""")!.AsObject(),
+            JsonNode.Parse("""{"HUD":{"A":1.0,"B":0.5}}""")!.AsObject()));
+
+    [Fact]
     public void Identical_settings_have_empty_diff() =>
         Assert.Empty(SettingsDiff.Changes(Gs(), Gs()));
 

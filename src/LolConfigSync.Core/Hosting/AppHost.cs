@@ -30,9 +30,13 @@ public sealed class AppHost : IAsyncDisposable
     private Task? _eventLoop;
     private bool _readOnlyChecked;
 
-    public AppHost(AppDataStore store, string installDir, TimeProvider time)
+    private readonly bool _connect;
+
+    /// <param name="connect">False for a sandboxed run: never connect to the League client or touch its files.</param>
+    public AppHost(AppDataStore store, string installDir, TimeProvider time, bool connect = true)
     {
         _store = store;
+        _connect = connect;
         InstallDir = installDir;
         var configDir = Path.Combine(installDir, "Config");
         Engine = new SyncEngine(new GameCfgVideoFile(Path.Combine(configDir, "game.cfg")), store, time);
@@ -45,9 +49,9 @@ public sealed class AppHost : IAsyncDisposable
 
     public Task StartAsync()
     {
-        FileLog.Info($"Starting; League install at {InstallDir}");
+        FileLog.Info($"Starting; League install at {InstallDir}{(_connect ? "" : " (sandbox: not connecting)")}");
         _eventLoop = Task.Run(() => PumpEventsAsync(_cts.Token));
-        _watcher.Start();
+        if (_connect) _watcher.Start();
         return Task.CompletedTask;
     }
 
@@ -122,7 +126,7 @@ public sealed class AppHost : IAsyncDisposable
         await _connectionLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            Engine.OnDisconnected();
+            await Engine.OnDisconnectedAsync().ConfigureAwait(false);
             await CloseConnectionAsync().ConfigureAwait(false);
         }
         finally

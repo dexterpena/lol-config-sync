@@ -9,6 +9,7 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
     public const string CurrentSummoner = "/lol-summoner/v1/current-summoner";
     public const string GameflowPhase = "/lol-gameflow/v1/gameflow-phase";
     public const string GameSettings = "/lol-game-settings/v1/game-settings";
+    public const string GameSettingsReady = "/lol-game-settings/v1/ready";
     public const string InputSettings = "/lol-game-settings/v1/input-settings";
     public const string SaveSettings = "/lol-game-settings/v1/save";
     public const string RunePages = "/lol-perks/v1/pages";
@@ -27,6 +28,11 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
 
     public async Task<string> GetGameflowPhaseAsync(CancellationToken ct = default) =>
         (await lcu.GetAsync(GameflowPhase, ct).ConfigureAwait(false))?.GetValue<string>() ?? "None";
+
+    /// <summary>A missing endpoint counts as ready, so an older or newer client never blocks syncing forever.</summary>
+    public async Task<bool> IsGameSettingsReadyAsync(CancellationToken ct = default) =>
+        (await GetOrNullAsync(GameSettingsReady, ct).ConfigureAwait(false)) is not { } node
+        || node.GetValueKind() != System.Text.Json.JsonValueKind.False;
 
     public Task<JsonObject> GetGameSettingsAsync(CancellationToken ct = default) => GetObjectAsync(GameSettings, ct);
     public Task PatchGameSettingsAsync(JsonObject settings, CancellationToken ct = default) => lcu.SendAsync(HttpMethod.Patch, GameSettings, settings, ct);

@@ -42,10 +42,19 @@ public sealed class HexDialog : HexWindow
         };
     }
 
-    /// <summary>Shows the dialog; returns true when the primary button was chosen.</summary>
-    public static bool Show(Window? owner, string title, string message, string primary = "OK", string? secondary = null)
+    /// <summary>
+    /// Shows the dialog; returns true when the primary button was chosen. If <paramref name="cancel"/>
+    /// fires while it's open (the question no longer applies), the dialog closes and returns false.
+    /// </summary>
+    public static bool Show(Window? owner, string title, string message, string primary = "OK", string? secondary = null,
+        CancellationToken cancel = default)
     {
+        if (cancel.IsCancellationRequested) return false;
         var dialog = new HexDialog(title, message, primary, secondary);
+        using var registration = cancel.Register(() => dialog.Dispatcher.BeginInvoke(() =>
+        {
+            if (dialog.IsVisible) dialog.DialogResult = false;
+        }));
         if (owner is { IsVisible: true })
         {
             dialog.Owner = owner;

@@ -10,7 +10,7 @@ It only talks to the League client's local API (`127.0.0.1`) and the files in `L
 2. **Every login after that:** the app waits until you're out of a game, backs up the account's current settings, then applies your main setup. A tray notification confirms it.
 3. **When you change something** in the client or in a game (hotkeys, HUD, volume, runes…), the app copies the change into the main setup a few seconds later, so the next account gets it too.
 4. **Pick what syncs:** the main window has a toggle for each group. In **Edit setup** you can change any value or uncheck **Sync** on a single setting so it stays different per account.
-5. **Backups:** each account is backed up right before the app changes it (10 kept per account). Restore one from **Backups** while logged into that account.
+5. **Backups:** each account is backed up right before the app changes it. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
 
 Graphics (resolution, window mode, quality) aren't stored per account by Riot. They live in this PC's `game.cfg`, so the Graphics toggle just keeps them pinned to your main setup.
 
@@ -21,7 +21,7 @@ If you'd previously made `PersistedSettings.json` read-only to stop League overw
 Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`).
 
 ```powershell
-dotnet test                                   # 116 unit tests (Core)
+dotnet test                                   # 135 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
 dotnet publish src/LolConfigSync.App -c Release
 ```
@@ -38,7 +38,7 @@ Publishing produces a single `LolConfigSync.exe` in `src/LolConfigSync.App/bin/R
 | Log | `%APPDATA%\LolConfigSync\log.txt` |
 | Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` → `LolConfigSync` |
 
-Set `LOLCONFIGSYNC_DATA_DIR` to keep all app data somewhere else, for example for testing.
+Setting `LOLCONFIGSYNC_DATA_DIR` runs the app in **sandbox mode**: all data goes to that folder, and the app never connects to the League client, never edits League's files and never touches the Run key. Use it to try the UI safely.
 
 ## Uninstall / undo
 

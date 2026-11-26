@@ -12,6 +12,9 @@ public interface ILeagueGateway
     Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default);
     Task<string> GetGameflowPhaseAsync(CancellationToken ct = default);
 
+    /// <summary>Whether League has finished loading the account's game settings from Riot's servers.</summary>
+    Task<bool> IsGameSettingsReadyAsync(CancellationToken ct = default);
+
     Task<JsonObject> GetGameSettingsAsync(CancellationToken ct = default);
     Task PatchGameSettingsAsync(JsonObject settings, CancellationToken ct = default);
     Task<JsonObject> GetInputSettingsAsync(CancellationToken ct = default);

@@ -21,9 +21,10 @@ public sealed class SyncEnginePushTests : IDisposable
         var gw = new FakeLeagueGateway(Main, MainState());
         _h.Video.Values = Obj("""{"Performance":{"ShadowQuality":"2"}}""");
         Account? asked = null;
-        _h.Engine.FirstRunPrompt = a => { asked = a; return Task.FromResult(true); };
+        _h.Engine.FirstRunPrompt = (a, _) => { asked = a; return Task.FromResult(true); };
 
         await _h.Engine.OnConnectedAsync(gw, default);
+        await _h.Engine.PendingPrompt;
 
         var main = _h.Store.LoadMainSetup()!;
         Assert.Equal(Main, asked);
@@ -39,9 +40,10 @@ public sealed class SyncEnginePushTests : IDisposable
     public async Task First_run_prompt_no_does_nothing()
     {
         var gw = new FakeLeagueGateway(Main, MainState());
-        _h.Engine.FirstRunPrompt = _ => Task.FromResult(false);
+        _h.Engine.FirstRunPrompt = (_, _) => Task.FromResult(false);
 
         await _h.Engine.OnConnectedAsync(gw, default);
+        await _h.Engine.PendingPrompt;
 
         Assert.Null(_h.Store.LoadMainSetup());
         Assert.Empty(gw.Calls);
@@ -88,7 +90,7 @@ public sealed class SyncEnginePushTests : IDisposable
 
         await _h.Engine.OnConnectedAsync(AltGateway(), default);
 
-        var backup = Assert.Single(_h.Store.ListBackups());
+        var backup = Assert.Single(_h.Store.ListBackups(), b => !b.IsOriginal);
         Assert.Equal(Alt.Puuid, backup.Puuid);
         var saved = _h.Store.LoadBackup(backup.Path);
         Assert.Equal(0.9, saved.GameSettings["HUD"]!["GlobalScale"]!.GetValue<double>());
@@ -190,7 +192,7 @@ public sealed class SyncEnginePushTests : IDisposable
         gw.SwitchAccount(Alt, AltState());
         await _h.Engine.HandleLcuEventAsync(Event("/lol-summoner/v1/current-summoner", Obj("""{"puuid":"puuid-alt"}""")), default);
 
-        Assert.Equal(2, _h.Store.ListBackups().Count);
+        Assert.Equal(2, _h.Store.ListBackups().Count(b => !b.IsOriginal));
         Assert.Equal(0.5, gw.State.Game["HUD"]!["GlobalScale"]!.GetValue<double>());
         Assert.Equal(Alt, _h.Engine.Status.Account);
     }
@@ -201,7 +203,7 @@ public sealed class SyncEnginePushTests : IDisposable
         _h.SeedMainSetup();
         await _h.Engine.OnConnectedAsync(AltGateway(), default);
 
-        _h.Engine.OnDisconnected();
+        await _h.Engine.OnDisconnectedAsync();
 
         Assert.Equal(SyncState.WaitingForClient, _h.Engine.Status.State);
         Assert.Null(_h.Engine.Status.Account);

@@ -115,7 +115,7 @@ public sealed class MainViewModel : ObservableObject
             if (!Set(ref _startWithWindows, value)) return;
             _settings.StartWithWindows = value;
             _store.SaveSettings(_settings);
-            if (Environment.ProcessPath is { } exe) StartupRegistration.Apply(value, exe);
+            if (!AppDataStore.IsSandboxed && Environment.ProcessPath is { } exe) StartupRegistration.Apply(value, exe);
         }
     }
 
