@@ -58,6 +58,7 @@ public class RunePagePlannerTests
 
     [Theory]
     [InlineData("Porofessor - Ahri Mid", true)]
+    [InlineData("Porofessor: Ahri", true)]
     [InlineData("poro: Jinx", true)]
     [InlineData("Ahri Poro build", false)]
     [InlineData("My Page", false)]
