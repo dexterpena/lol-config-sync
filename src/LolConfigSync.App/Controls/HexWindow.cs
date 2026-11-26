@@ -20,7 +20,10 @@ public class HexWindow : Window
         ContentRendered += (_, _) => SaveSnapshotIfRequested();
     }
 
-    private void SaveSnapshotIfRequested()
+    private void SaveSnapshotIfRequested() => SaveSnapshotIfRequested(Title.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>Dev aid: saves <c>{WindowType}-{suffix}.png</c> when the snapshot variable is set; otherwise does nothing.</summary>
+    protected void SaveSnapshotIfRequested(string suffix)
     {
         var dir = Environment.GetEnvironmentVariable(SnapshotDirVariable);
         if (string.IsNullOrWhiteSpace(dir) || Content is not FrameworkElement) return;
@@ -33,7 +36,7 @@ public class HexWindow : Window
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
             Directory.CreateDirectory(dir);
-            using var file = File.Create(Path.Combine(dir, $"{GetType().Name}-{Title.Length}.png"));
+            using var file = File.Create(Path.Combine(dir, $"{GetType().Name}-{suffix}.png"));
             encoder.Save(file);
         }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }

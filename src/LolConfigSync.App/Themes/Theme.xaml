@@ -346,6 +346,74 @@
         </Setter>
     </Style>
 
+    <!-- ===== Dropdown ===== -->
+    <Style x:Key="HexComboBoxItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bg" Padding="12,7" Background="Transparent">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bg" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource GoldBrightBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource GoldBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="HexComboBox" TargetType="ComboBox">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="{StaticResource FontBody}" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource HexComboBoxItem}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource HexFocusVisual}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border x:Name="Frame" Background="{StaticResource AbyssBrush}" BorderBrush="{StaticResource GoldDarkBrush}"
+                                            BorderThickness="1">
+                                        <Path HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"
+                                              Data="M0,0 L5,5 L10,0" Stroke="{StaticResource GoldBrush}" StrokeThickness="1.5" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <ContentPresenter Margin="12,7,34,7" IsHitTestVisible="False" VerticalAlignment="Center"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" />
+                        <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
+                               Focusable="False" PopupAnimation="Fade">
+                            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource GoldDarkBrush}" BorderThickness="1"
+                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="320">
+                                <ScrollViewer>
+                                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ===== Scrollbars ===== -->
     <Style x:Key="HexScrollThumb" TargetType="Thumb">
         <Setter Property="Template">

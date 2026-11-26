@@ -182,8 +182,27 @@ public partial class App : Application, IAppShell
     {
         var main = _store.LoadMainSetup();
         if (main is null || _host is null) return;
-        var editor = new EditorWindow(close => new EditorViewModel(main, _store.LoadSettings(), _host.Engine, close, ShowError));
+        var overrides = _store.LoadOverrides();
+        var current = _host.Engine.Status.Account;
+        var editor = new EditorWindow(close => new EditorViewModel(main, _store.LoadSettings(), overrides,
+            KnownAccounts(overrides), current?.Puuid, _host.Engine, close, ShowError));
         ShowChild(editor);
+    }
+
+    /// <summary>Every account the app has seen: the logged-in one, accounts with backups, and accounts with own values.</summary>
+    private List<(string Puuid, string RiotId)> KnownAccounts(LolConfigSync.Core.Model.AccountOverrides overrides)
+    {
+        var accounts = new Dictionary<string, string>();
+        foreach (var backup in _store.ListBackups().Where(b => !string.IsNullOrEmpty(b.Puuid)).OrderBy(b => b.CreatedAt))
+        {
+            accounts[backup.Puuid] = string.IsNullOrEmpty(backup.RiotId) ? backup.Puuid : backup.RiotId;
+        }
+        foreach (var (puuid, account) in overrides.Accounts)
+        {
+            if (!accounts.ContainsKey(puuid)) accounts[puuid] = string.IsNullOrEmpty(account.RiotId) ? puuid : account.RiotId;
+        }
+        if (_host?.Engine.Status.Account is { } current) accounts[current.Puuid] = current.RiotId;
+        return accounts.Select(kv => (kv.Key, kv.Value)).ToList();
     }
 
     public void ShowBackups()

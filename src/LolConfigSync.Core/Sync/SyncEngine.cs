@@ -47,6 +47,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private int? _runeCapacityShortfall;
 
     private readonly Dictionary<SettingsKind, JsonObject> _pendingValues = [];
+    private readonly Dictionary<SettingKey, JsonNode?> _pendingOwn = [];
     private readonly HashSet<string> _pendingClient = [];
     private bool _pendingRunes;
     private bool _pendingItemSets;
@@ -179,13 +180,28 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         _pushedPuuid = null;
     }, ct);
 
-    /// <summary>Saves the user's edits and pushes them right away when an account is logged in and idle.</summary>
-    public Task SaveEditedSetupAsync(SetupSnapshot edited, AppSettings settings, CancellationToken ct) => LockedAsync(async token =>
+    /// <summary>
+    /// Saves the user's edits (and per-account values, when given) and pushes them right away when an account
+    /// is logged in and idle.
+    /// </summary>
+    public Task SaveEditedSetupAsync(SetupSnapshot edited, AppSettings settings, CancellationToken ct,
+        AccountOverrides? overrides = null) => LockedAsync(async token =>
     {
+        if (overrides is not null) store.SaveOverrides(overrides);
         store.SaveSettings(settings);
         edited.CapturedAt = time.GetUtcNow();
         store.SaveMainSetup(edited);
         if (_gateway is null || _account is null) return;
+        ClearPending();
+        _pushPending = true;
+        await TryPushAsync(token).ConfigureAwait(false);
+    }, ct);
+
+    /// <summary>Saves per-account settings and applies them right away if their account is logged in and idle.</summary>
+    public Task SaveAccountOverridesAsync(AccountOverrides overrides, CancellationToken ct) => LockedAsync(async token =>
+    {
+        store.SaveOverrides(overrides);
+        if (_gateway is null || _account is null || store.LoadMainSetup() is null) return;
         ClearPending();
         _pushPending = true;
         await TryPushAsync(token).ConfigureAwait(false);
@@ -345,11 +361,12 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         var main = store.LoadMainSetup();
         if (main is null) return;
         _pushPending = false;
-        await PushAsync(gateway, _account, main, store.LoadSettings(), ct).ConfigureAwait(false);
+        await PushAsync(gateway, _account, main, store.LoadSettings(), ct, overrides: store.LoadOverrides()).ConfigureAwait(false);
     }
 
+    /// <param name="overrides">Each account's own values, applied on top for this account (null for a restore, which is exact).</param>
     private async Task PushAsync(ILeagueGateway gateway, Account account, SetupSnapshot source, AppSettings settings, CancellationToken ct,
-        string? doneMessage = null)
+        string? doneMessage = null, AccountOverrides? overrides = null)
     {
         SetStatus(SyncState.Syncing, account);
 
@@ -377,8 +394,14 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
 
         // Game settings (Sound, Interface, Game) and hotkeys.
-        var game = SettingsFilter.Apply(source.GameSettings, SettingsKind.Game, settings);
-        var input = SettingsFilter.Apply(source.InputSettings, SettingsKind.Input, settings);
+        JsonObject Effective(SettingsKind kind)
+        {
+            var filtered = SettingsFilter.Apply(source.Settings(kind), kind, settings);
+            return overrides?.ApplyTo(filtered, kind, account.Puuid) ?? filtered;
+        }
+
+        var game = Effective(SettingsKind.Game);
+        var input = Effective(SettingsKind.Input);
         var gameOk = game.Count > 0 && !Skipped(Part.Game, "Game settings")
             && await TryAsync("Game settings", warnings, () => gateway.PatchGameSettingsAsync(game, ct)).ConfigureAwait(false);
         var inputOk = input.Count > 0 && !Skipped(Part.Input, "Hotkeys")
@@ -394,7 +417,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         if (settings.IsEnabled(SyncSection.Video) && !Skipped(Part.Video, "Graphics")
             && await TryAsync("Graphics", warnings, () =>
             {
-                var changes = SettingsDiff.Changes(SettingsFilter.Apply(source.VideoSettings, SettingsKind.Video, settings), video.Read());
+                var changes = SettingsDiff.Changes(Effective(SettingsKind.Video), video.Read());
                 if (changes.Count > 0) video.Write(changes);
                 return Task.CompletedTask;
             }).ConfigureAwait(false))
@@ -521,19 +544,36 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         if (!CaptureOpen || data is not JsonObject values) return;
         var main = store.LoadMainSetup();
         if (main is null) return;
+        var puuid = _account!.Puuid;
+
+        // Settings this account has its own value for: changes update that value, not the main setup.
+        var overrides = store.LoadOverrides();
+        var ownKeys = overrides.KeysFor(puuid, kind).ToList();
+        var queued = false;
+        foreach (var key in ownKeys)
+        {
+            if (!_pushedSections.Contains(SectionMap.SectionFor(kind, key.Section))) continue;
+            if (values[key.Section] is not JsonObject section || !section.TryGetPropertyValue(key.Name, out var value)) continue;
+            if (JsonNode.DeepEquals(value, overrides.Get(puuid, key))) continue;
+            _pendingOwn[key] = value?.DeepClone();
+            queued = true;
+        }
 
         var settings = store.LoadSettings();
         var incoming = OnlyPushedSections(SettingsFilter.Apply(values, kind, settings), kind);
+        foreach (var key in ownKeys) (incoming[key.Section] as JsonObject)?.Remove(key.Name);
         var changes = SettingsDiff.Changes(incoming, SettingsFilter.Apply(main.Settings(kind), kind, settings));
-        if (changes.Count == 0) return;
-
-        if (!_pendingValues.TryGetValue(kind, out var pending))
+        if (changes.Count > 0)
         {
-            pending = [];
-            _pendingValues[kind] = pending;
+            if (!_pendingValues.TryGetValue(kind, out var pending))
+            {
+                pending = [];
+                _pendingValues[kind] = pending;
+            }
+            SettingsDiff.MergeInto(pending, changes);
+            queued = true;
         }
-        SettingsDiff.MergeInto(pending, changes);
-        ScheduleFlush();
+        if (queued) ScheduleFlush();
     }
 
     private JsonObject OnlyPushedSections(JsonObject values, SettingsKind kind)
@@ -567,6 +607,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private void ClearPending()
     {
         _pendingValues.Clear();
+        _pendingOwn.Clear();
         _pendingClient.Clear();
         _pendingRunes = false;
         _pendingItemSets = false;
@@ -589,6 +630,14 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         {
             SettingsDiff.MergeInto(main.Settings(kind), values);
             changed = true;
+        }
+
+        var ownChanged = _pendingOwn.Count > 0;
+        if (ownChanged)
+        {
+            var overrides = store.LoadOverrides();
+            foreach (var (key, value) in _pendingOwn) overrides.Set(account.Puuid, account.RiotId, key, value);
+            store.SaveOverrides(overrides);
         }
 
         var warnings = new List<string>();
@@ -635,9 +684,10 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             main.CapturedFromRiotId = account.RiotId;
             store.SaveMainSetup(main);
         }
-        if (changed || warnings.Count > 0)
+        if (changed || ownChanged || warnings.Count > 0)
         {
-            SetStatus(_status.State, account, lastSync: changed ? time.GetUtcNow() : null, warnings: warnings.Count > 0 ? warnings : null);
+            SetStatus(_status.State, account, lastSync: changed || ownChanged ? time.GetUtcNow() : null,
+                warnings: warnings.Count > 0 ? warnings : null);
         }
     }, CancellationToken.None);
 

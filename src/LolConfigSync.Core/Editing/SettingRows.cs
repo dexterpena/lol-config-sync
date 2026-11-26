@@ -28,12 +28,59 @@ public static class SettingRows
                 }
             }
         }
-        return rows
-            .OrderBy(r => r.Section)
-            .ThenBy(r => SettingLabels.Rank(r.Key))
-            .ThenBy(r => r.Label, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+        return Sorted(rows);
     }
+
+    /// <summary>Rows for editing one account's own values: each shows the account's value (own or main) and the main value.</summary>
+    public static IReadOnlyList<SettingRow> BuildForAccount(SetupSnapshot setup, AppSettings settings, AccountOverrides overrides, string puuid)
+    {
+        var rows = new List<SettingRow>();
+        foreach (var kind in Kinds)
+        {
+            foreach (var (section, node) in setup.Settings(kind))
+            {
+                if (node is not JsonObject values) continue;
+                foreach (var (name, mainValue) in values)
+                {
+                    var key = new SettingKey(kind, section, name);
+                    var own = overrides.Has(puuid, key);
+                    var shown = own ? overrides.Get(puuid, key) : mainValue;
+                    var isBoolean = mainValue?.GetValueKind() is JsonValueKind.True or JsonValueKind.False;
+                    rows.Add(new SettingRow(key, SectionMap.SectionFor(kind, section), SettingLabels.For(key), Display(shown),
+                        !settings.IsExcluded(key), isBoolean, accountMode: true, mainValue: Display(mainValue), isOwnValue: own));
+                }
+            }
+        }
+        return Sorted(rows);
+    }
+
+    /// <summary>
+    /// Saves the account's own values from account-mode rows (typed like the main setup's values) and removes
+    /// the ones turned off. Returns keys whose text couldn't be converted; those keep their old own value.
+    /// </summary>
+    public static IReadOnlyList<SettingKey> ApplyToAccount(AccountOverrides overrides, string puuid, string riotId, SetupSnapshot setup,
+        IEnumerable<SettingRow> rows)
+    {
+        var rejected = new List<SettingKey>();
+        foreach (var row in rows)
+        {
+            if (!row.IsOwnValue)
+            {
+                overrides.Remove(puuid, row.Key);
+                continue;
+            }
+            var template = (setup.Settings(row.Key.Kind)[row.Key.Section] as JsonObject)?[row.Key.Name] ?? overrides.Get(puuid, row.Key);
+            if (TryConvert(template, row.Value, out var converted)) overrides.Set(puuid, riotId, row.Key, converted);
+            else rejected.Add(row.Key);
+        }
+        return rejected;
+    }
+
+    private static IReadOnlyList<SettingRow> Sorted(IEnumerable<SettingRow> rows) => rows
+        .OrderBy(r => r.Section)
+        .ThenBy(r => SettingLabels.Rank(r.Key))
+        .ThenBy(r => r.Label, StringComparer.CurrentCultureIgnoreCase)
+        .ToList();
 
     /// <summary>
     /// Writes edited values back (keeping each value's original JSON type) and updates exclusions.

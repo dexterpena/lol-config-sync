@@ -1,4 +1,4 @@
-# LoL Config Sync
+﻿# LoL Config Sync
 
 A small Windows tray app that makes every League of Legends account feel like the same account. It keeps one **main setup** (hotkeys, interface, camera, sound, rune pages, item sets, client preferences and graphics), applies it to whichever account you log into, and saves any changes you make in-game back into the main setup.
 
@@ -10,7 +10,9 @@ It only talks to the League client's local API (`127.0.0.1`) and the files in `L
 2. **Every login after that:** the app waits until you're out of a game, backs up the account's current settings, then applies your main setup. A tray notification confirms it.
 3. **When you change something** in the client or in a game (hotkeys, HUD, volume, runes…), the app copies the change into the main setup a few seconds later, so the next account gets it too.
 4. **Pick what syncs:** the main window has a toggle for each group. In **Edit setup** you can change any value or uncheck **Sync** on a single setting so it stays different per account.
-5. **Backups:** before the app changes anything in the client, it backs up that account's current settings into a folder named after its Riot ID (for example `data\backups\Fiebre#L4N\`). If the backup can't be saved, nothing is changed. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
+5. **Per-account settings:** in **Edit setup**, switch **Editing** from "All accounts" to one account. Any value you change there becomes that account's own (ticked under **Own value**). It's applied on top of the main setup every time you log into that account. Changing it in-game on that account updates the account's own value, not the main setup. Untick **Own value** to go back to the main setup's value. These are saved in `account-settings.json`.
+6. **Who's logged in:** the top of the main window shows the logged-in account's Riot ID, level and profile icon, and so does the tray tooltip.
+7. **Backups:** before the app changes anything in the client, it backs up that account's current settings into a folder named after its Riot ID (for example `data\backups\Fiebre#L4N\`). If the backup can't be saved, nothing is changed. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
 
 **Rune pages and Porofessor:** one rune page slot on every account is always left empty so Porofessor can create its page in champ select. Pages whose names start with `Porofessor` or `Poro` are never synced. If one is sitting in the free slot when a sync needs to rewrite your pages, it's cleared, and Porofessor makes a new one next champ select. Both are adjustable in `settings.json` (`ReservedRunePageSlots`, `ToolRunePagePrefixes`), for example if Porofessor names its pages differently.
 
@@ -30,7 +32,7 @@ There are two downloads. Neither needs .NET installed.
 Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`). Building the installer also needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`).
 
 ```powershell
-dotnet test                                   # 152 unit tests (Core)
+dotnet test                                   # 168 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
 powershell -ExecutionPolicy Bypass -File build\package.ps1   # tests, then both downloads into .\dist
 ```

@@ -19,9 +19,14 @@
     <DockPanel Margin="28,10,28,22">
         <!-- Header -->
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock Text="Edit your setup" Style="{StaticResource TitleText}" />
-            <TextBlock Style="{StaticResource MutedText}" Margin="0,4,0,0"
-                       Text="Changes are saved to your main setup and applied to the account you're logged into. Uncheck Sync to let a setting stay different on each account." />
+            <DockPanel LastChildFill="False">
+                <TextBlock DockPanel.Dock="Left" Text="Edit your setup" Style="{StaticResource TitleText}" VerticalAlignment="Center" />
+                <ComboBox DockPanel.Dock="Right" Style="{StaticResource HexComboBox}" Width="280" VerticalAlignment="Center"
+                          ItemsSource="{Binding Targets}" SelectedItem="{Binding Target}" DisplayMemberPath="Label"
+                          AutomationProperties.Name="Edit settings for" ToolTip="Edit the main setup, or one account's own values" />
+                <TextBlock DockPanel.Dock="Right" Text="Editing" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,10,0" />
+            </DockPanel>
+            <TextBlock Style="{StaticResource MutedText}" Margin="0,6,0,0" Text="{Binding Subtitle}" />
         </StackPanel>
 
         <!-- Footer -->
@@ -67,7 +72,17 @@
         <Grid>
             <DataGrid x:Name="Grid" Style="{StaticResource HexDataGrid}" ItemsSource="{Binding Rows}">
                 <DataGrid.Columns>
-                    <DataGridTemplateColumn Header="Sync" Width="64">
+                    <DataGridTemplateColumn x:Name="OwnColumn" Header="Own value" Width="84" Visibility="Collapsed">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type editing:SettingRow}">
+                                <CheckBox Style="{StaticResource HexCheckBox}" IsChecked="{Binding IsOwnValue, UpdateSourceTrigger=PropertyChanged}"
+                                          HorizontalAlignment="Center" ToolTip="Use a value only this account has"
+                                          AutomationProperties.Name="{Binding Label, StringFormat=Own value for {0}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn x:Name="SyncColumn" Header="Sync" Width="64">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="{x:Type editing:SettingRow}">
                                 <CheckBox Style="{StaticResource HexCheckBox}" IsChecked="{Binding Sync, UpdateSourceTrigger=PropertyChanged}"
@@ -90,6 +105,15 @@
                                         <Setter TargetName="Label" Property="Foreground" Value="{StaticResource TextMutedBrush}" />
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn x:Name="MainValueColumn" Header="Main setup" Width="110" Visibility="Collapsed">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type editing:SettingRow}">
+                                <TextBlock Text="{Binding MainValue}" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTip="{Binding MainValue}" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

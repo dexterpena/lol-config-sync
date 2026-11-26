@@ -111,6 +111,63 @@ public class SettingRowsTests
     }
 
     [Fact]
+    public void Account_rows_show_own_values_and_main_values()
+    {
+        var overrides = new AccountOverrides();
+        overrides.Set("p", "Alt#EUW", SettingKey.Parse("game:HUD.GlobalScale"), 0.7);
+
+        var rows = SettingRows.BuildForAccount(Setup(), new AppSettings(), overrides, "p");
+
+        var scale = rows.Single(r => r.Key.Name == "GlobalScale");
+        Assert.True(scale.IsOwnValue);
+        Assert.Equal("0.7", scale.Value);
+        Assert.Equal("0.5", scale.MainValue);
+        Assert.False(rows.Single(r => r.Key.Name == "FlipMiniMap").IsOwnValue);
+    }
+
+    [Fact]
+    public void Editing_a_value_for_an_account_makes_it_that_accounts_own()
+    {
+        var rows = SettingRows.BuildForAccount(Setup(), new AppSettings(), new AccountOverrides(), "p");
+        var flip = rows.Single(r => r.Key.Name == "FlipMiniMap");
+
+        flip.Value = "false";
+
+        Assert.True(flip.IsOwnValue);
+    }
+
+    [Fact]
+    public void Turning_off_own_value_goes_back_to_the_main_value()
+    {
+        var overrides = new AccountOverrides();
+        overrides.Set("p", "Alt#EUW", SettingKey.Parse("game:HUD.GlobalScale"), 0.7);
+        var rows = SettingRows.BuildForAccount(Setup(), new AppSettings(), overrides, "p");
+        var scale = rows.Single(r => r.Key.Name == "GlobalScale");
+
+        scale.IsOwnValue = false;
+
+        Assert.Equal("0.5", scale.Value);
+    }
+
+    [Fact]
+    public void Applying_account_rows_saves_typed_own_values_and_drops_the_rest()
+    {
+        var setup = Setup();
+        var overrides = new AccountOverrides();
+        overrides.Set("p", "Alt#EUW", SettingKey.Parse("game:HUD.GlobalScale"), 0.7);
+        var rows = SettingRows.BuildForAccount(setup, new AppSettings(), overrides, "p");
+        rows.Single(r => r.Key.Name == "GlobalScale").IsOwnValue = false;
+        rows.Single(r => r.Key.Name == "FlipMiniMap").Value = "false";
+
+        var rejected = SettingRows.ApplyToAccount(overrides, "p", "Alt#EUW", setup, rows);
+
+        Assert.Empty(rejected);
+        Assert.Null(overrides.Get("p", SettingKey.Parse("game:HUD.GlobalScale")));
+        Assert.False(overrides.Get("p", SettingKey.Parse("game:HUD.FlipMiniMap"))!.GetValue<bool>());
+        Assert.Equal(0.5, setup.GameSettings["HUD"]!["GlobalScale"]!.GetValue<double>()); // main untouched
+    }
+
+    [Fact]
     public void Build_marks_boolean_rows()
     {
         var rows = SettingRows.Build(Setup(), new AppSettings());

@@ -72,6 +72,7 @@ public sealed class AppDataStore(string rootDir)
     private string MainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.json");
     private string PreviousMainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.prev.json");
     private string SettingsPath => System.IO.Path.Combine(RootDir, "settings.json");
+    private string OverridesPath => System.IO.Path.Combine(RootDir, "account-settings.json");
     private string BackupsDir => System.IO.Path.Combine(RootDir, "backups");
 
     public SetupSnapshot? LoadMainSetup() => TryRead<SetupSnapshot>(MainSetupPath);
@@ -84,6 +85,11 @@ public sealed class AppDataStore(string rootDir)
         if (File.Exists(MainSetupPath)) File.Copy(MainSetupPath, PreviousMainSetupPath, overwrite: true);
         WriteAtomic(MainSetupPath, snapshot);
     }
+
+    /// <summary>Per-account settings (each account's own values).</summary>
+    public AccountOverrides LoadOverrides() => TryRead<AccountOverrides>(OverridesPath) ?? new AccountOverrides();
+
+    public void SaveOverrides(AccountOverrides overrides) => WriteAtomic(OverridesPath, overrides);
 
     public AppSettings LoadSettings() => TryRead<AppSettings>(SettingsPath) ?? new AppSettings();
 
