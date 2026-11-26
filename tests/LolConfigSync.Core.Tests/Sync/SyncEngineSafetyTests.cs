@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
+using LolConfigSync.Core.Hosting;
 using LolConfigSync.Core.League;
+using LolConfigSync.Core.Model;
 using LolConfigSync.Core.Sync;
 using LolConfigSync.Core.Tests.Fakes;
 using static LolConfigSync.Core.Tests.Fakes.EngineHarness;
@@ -340,5 +342,147 @@ public sealed class SyncEngineSafetyTests : IDisposable
 
         Assert.Equal(0.5, MainScale());
         Assert.Contains(_h.Engine.Status.Warnings, w => w.Contains("didn't keep"));
+    }
+
+    [Fact]
+    public async Task Login_event_cancels_previous_push_before_the_queue_is_drained()
+    {
+        _h.SeedMainSetup();
+        var gw = new FakeLeagueGateway(Main, MainState()) { GamePatchGate = new() };
+        var session = new LeagueLoginSession();
+        var push = _h.Engine.OnConnectedAsync(gw, session, default);
+        Assert.False(push.IsCompleted);
+        var staleLogin = session.Token;
+
+        gw.SwitchAccount(Alt, AltState());
+        var loginEvent = Event(LeagueGateway.CurrentSummoner, Obj("""{"puuid":"puuid-alt"}"""));
+        var nextLogin = session.Observe(loginEvent);
+        await push.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal("[a]", gw.State.Input["GameEvents"]!["evtCastSpell1"]!.GetValue<string>());
+        gw.GamePatchGate.SetResult();
+        await _h.Engine.HandleObservedEventAsync(loginEvent, session, nextLogin, default);
+
+        var original = _h.Store.ListBackups().Single(b => b.IsOriginal && b.Puuid == Alt.Puuid);
+        Assert.Equal("[a]", _h.Store.LoadBackup(original.Path).InputSettings["GameEvents"]!["evtCastSpell1"]!.GetValue<string>());
+        Assert.Equal("[q]", gw.State.Input["GameEvents"]!["evtCastSpell1"]!.GetValue<string>());
+
+        _h.Time.Advance(TimeSpan.FromSeconds(6));
+        var stale = Event(GameUri, Obj("""{"HUD":{"GlobalScale":0.99}}"""));
+        await _h.Engine.HandleObservedEventAsync(stale, session, staleLogin, default);
+        await FlushAsync();
+        Assert.Equal(0.5, MainScale());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Undo_before_capture_keeps_latest_hotkey_and_other_changes(bool accountSpecific)
+    {
+        _h.SeedMainSetup();
+        var key = SettingKey.Parse("input:GameEvents.evtCastSpell1");
+        var saved = accountSpecific ? "[z]" : "[q]";
+        if (accountSpecific)
+        {
+            var overrides = _h.Store.LoadOverrides();
+            overrides.Set(Alt.Puuid, Alt.RiotId, key, saved);
+            _h.Store.SaveOverrides(overrides);
+        }
+        await _h.Engine.OnConnectedAsync(new FakeLeagueGateway(Alt, AltState()), default);
+        _h.Time.Advance(TimeSpan.FromSeconds(6));
+        await _h.Engine.HandleLcuEventAsync(Event(InputUri, Obj("""{"GameEvents":{"evtCastSpell1":"[w]","other":"[e]"}}""")), default);
+        await _h.Engine.HandleLcuEventAsync(Event(InputUri, new JsonObject { ["GameEvents"] = new JsonObject { ["evtCastSpell1"] = saved } }), default);
+        await FlushAsync();
+
+        var input = _h.Store.LoadMainSetup()!.InputSettings["GameEvents"]!;
+        Assert.Equal("[q]", input["evtCastSpell1"]!.GetValue<string>());
+        Assert.Equal("[e]", input["other"]!.GetValue<string>());
+        if (accountSpecific) Assert.Equal(saved, _h.Store.LoadOverrides().Get(Alt.Puuid, key)!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Original_recovers_only_the_previously_unreadable_parts()
+    {
+        _h.SeedMainSetup();
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        gw.FailingReads.Add("input");
+        await _h.Engine.OnConnectedAsync(gw, default);
+        var original = _h.Store.ListBackups().Single(b => b.IsOriginal);
+        Assert.Contains(SnapshotPart.Input, _h.Store.LoadBackup(original.Path).UnreadableParts!);
+
+        gw.FailingReads.Clear();
+        _h.Time.Advance(TimeSpan.FromSeconds(6));
+        await _h.Engine.PushMainSetupAsync(default);
+        Assert.Equal("[q]", gw.State.Input["GameEvents"]!["evtCastSpell1"]!.GetValue<string>());
+        var result = await _h.Engine.RestoreBackupAsync(original.Path, default);
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal("[a]", gw.State.Input["GameEvents"]!["evtCastSpell1"]!.GetValue<string>());
+        Assert.Equal(0.9, gw.State.Game["HUD"]!["GlobalScale"]!.GetValue<double>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Restore_uses_all_slots_including_tool_pages_and_restores_empty_lists(bool hadPages)
+    {
+        _h.SeedMainSetup();
+        var state = AltState();
+        state.Capacity = 2;
+        state.Pages = hadPages ? [Page(1, "Original"), Page(2, "Porofessor: Ahri")] : [];
+        if (hadPages) state.Pages[0]!["current"] = true;
+        state.ItemSets.Clear();
+        await _h.Engine.OnConnectedAsync(new FakeLeagueGateway(Alt, state), default);
+        Assert.Single(state.ItemSets);
+        Assert.Single(state.Pages);
+        var original = _h.Store.ListBackups().Single(b => b.IsOriginal);
+
+        var result = await _h.Engine.RestoreBackupAsync(original.Path, default);
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal(hadPages ? new[] { "Original", "Porofessor: Ahri" } : [], state.Pages.Select(p => p!["name"]!.GetValue<string>()));
+        if (hadPages) Assert.True(state.Pages[0]!["current"]!.GetValue<bool>());
+        Assert.Empty(state.ItemSets);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Restore_leaves_collections_alone_when_the_backup_cannot_confirm_they_were_empty(bool legacy)
+    {
+        _h.SeedMainSetup();
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        gw.FailingReads.UnionWith(["itemsets", "runes"]);
+        await _h.Engine.OnConnectedAsync(gw, default);
+        var path = _h.Store.ListBackups().Single(b => !b.IsOriginal).Path;
+        if (legacy)
+        {
+            var json = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            json.Remove("UnreadableParts");
+            File.WriteAllText(path, json.ToJsonString());
+        }
+        gw.FailingReads.Clear();
+        _h.Time.Advance(TimeSpan.FromSeconds(6));
+        var result = await _h.Engine.RestoreBackupAsync(path, default);
+
+        Assert.Contains(result.Warnings, warning => warning.Contains("Rune pages"));
+        Assert.Contains(result.Warnings, warning => warning.Contains("Item sets"));
+        Assert.Equal("AltPage", Assert.Single(gw.State.Pages)!["name"]!.GetValue<string>());
+        Assert.Equal("AltSet", Assert.Single(gw.State.ItemSets)!["title"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Restore_keeps_current_pages_if_the_complete_backup_no_longer_fits()
+    {
+        _h.SeedMainSetup();
+        var state = AltState();
+        state.Pages.Add(Page(8, "Another original"));
+        await _h.Engine.OnConnectedAsync(new FakeLeagueGateway(Alt, state), default);
+        var original = _h.Store.ListBackups().Single(b => b.IsOriginal);
+        state.Capacity = 1;
+
+        var result = await _h.Engine.RestoreBackupAsync(original.Path, default);
+
+        Assert.Contains(result.Warnings, warning => warning.Contains("more rune pages"));
+        Assert.Equal("MainPage", Assert.Single(state.Pages)!["name"]!.GetValue<string>());
     }
 }

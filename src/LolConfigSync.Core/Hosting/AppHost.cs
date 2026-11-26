@@ -22,7 +22,8 @@ public sealed class AppHost : IAsyncDisposable
 
     private readonly AppDataStore _store;
     private readonly LcuConnectionWatcher _watcher;
-    private readonly Channel<LcuEvent> _events = Channel.CreateUnbounded<LcuEvent>(new UnboundedChannelOptions { SingleReader = true });
+    private sealed record ReceivedEvent(LcuEvent Event, LeagueLoginSession Session, CancellationToken Login);
+    private readonly Channel<ReceivedEvent> _events = Channel.CreateUnbounded<ReceivedEvent>(new UnboundedChannelOptions { SingleReader = true });
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private LcuHttpClient? _http;
@@ -76,11 +77,16 @@ public sealed class AppHost : IAsyncDisposable
             }
 
             var stream = new LcuEventStream(lockfile);
+            var session = new LeagueLoginSession();
             stream.Received += e =>
             {
-                if (IsRelevant(e.Uri)) _events.Writer.TryWrite(e);
+                if (IsRelevant(e.Uri)) _events.Writer.TryWrite(new(e, session, session.Observe(e)));
             };
-            stream.Closed += () => OnStreamClosed(stream);
+            stream.Closed += () =>
+            {
+                session.Close();
+                OnStreamClosed(stream);
+            };
             try
             {
                 await stream.ConnectAsync(_cts.Token).ConfigureAwait(false);
@@ -101,7 +107,7 @@ public sealed class AppHost : IAsyncDisposable
 
             try
             {
-                await Engine.OnConnectedAsync(gateway, _cts.Token).ConfigureAwait(false);
+                await Engine.OnConnectedAsync(gateway, session, _cts.Token).ConfigureAwait(false);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -170,11 +176,11 @@ public sealed class AppHost : IAsyncDisposable
             {
                 try
                 {
-                    await Engine.HandleLcuEventAsync(e, ct).ConfigureAwait(false);
+                    await Engine.HandleObservedEventAsync(e.Event, e.Session, e.Login, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    FileLog.Error($"Handling {e.Uri} failed", ex);
+                    FileLog.Error($"Handling {e.Event.Uri} failed", ex);
                 }
             }
         }

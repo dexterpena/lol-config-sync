@@ -40,7 +40,12 @@ public sealed class BackupsViewModel : ObservableObject
             {
                 return;
             }
-            await _engine.RestoreBackupAsync(item.Entry.Path, CancellationToken.None);
+            var result = await _engine.RestoreBackupAsync(item.Entry.Path, CancellationToken.None);
+            if (result.Warnings.Count > 0)
+            {
+                Message = string.Join(Environment.NewLine, result.Warnings);
+                return;
+            }
             Message = $"Restored {item.RiotId} to {item.When}. Syncing is paused for this account until you press Sync now.";
         }, () => CanRestore, onError);
         CloseCommand = new RelayCommand(close);

@@ -99,11 +99,31 @@ public sealed class AppDataStore(string rootDir)
     /// Saves a backup named after <see cref="SetupSnapshot.CapturedAt"/> and prunes old ones for that account.
     /// The account's very first backup is also pinned as its original and is never pruned.
     /// </summary>
-    public string SaveBackup(SetupSnapshot snapshot)
+    public string SaveBackup(SetupSnapshot snapshot, IReadOnlySet<SnapshotPart>? unreadable = null)
     {
         var dir = System.IO.Path.Combine(BackupsDir, BackupFolderName(snapshot));
         var original = System.IO.Path.Combine(dir, OriginalBackupName);
-        if (!File.Exists(original)) WriteAtomic(original, snapshot);
+        snapshot.UnreadableParts = unreadable is null ? [] : [.. unreadable];
+        if (!File.Exists(original))
+        {
+            WriteAtomic(original, snapshot);
+        }
+        else
+        {
+            var first = LoadBackup(original);
+            if (first.CapturedFromPuuid != snapshot.CapturedFromPuuid)
+                throw new IOException("The original backup in this folder belongs to a different account.");
+            if (first.UnreadableParts is { Count: > 0 } missing)
+            {
+                var recovered = missing.Except(snapshot.UnreadableParts).ToArray();
+                if (recovered.Length > 0)
+                {
+                    first.CopyPartsFrom(snapshot, recovered);
+                    missing.ExceptWith(recovered);
+                    WriteAtomic(original, first);
+                }
+            }
+        }
 
         var name = snapshot.CapturedAt.UtcDateTime.ToString(BackupTimeFormat, CultureInfo.InvariantCulture);
         var path = System.IO.Path.Combine(dir, name + ".json");

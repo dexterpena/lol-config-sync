@@ -26,13 +26,10 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private static readonly IReadOnlySet<string> InGamePhases = new HashSet<string> { "InProgress", "Reconnect" };
     private static readonly SyncSection[] AllSections = Enum.GetValues<SyncSection>();
 
-    /// <summary>The independently read parts of an account, used to track partial read failures.</summary>
-    private enum Part { Game, Input, Video, Runes, ItemSets, Client }
-
     private readonly SemaphoreSlim _lock = new(1, 1);
     private ILeagueGateway? _gateway;
-    private CancellationTokenSource? _connectionCts;
-    private CancellationTokenSource? _loginCts;
+    private volatile LeagueLoginSession? _session;
+    private CancellationToken _accountToken;
     private Account? _account;
     private bool _pushPending;
     private bool _promptPending;
@@ -46,7 +43,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private readonly HashSet<SyncSection> _pushedSections = [];
     private int? _runeCapacityShortfall;
 
-    private readonly Dictionary<SettingsKind, JsonObject> _pendingValues = [];
+    private readonly Dictionary<SettingKey, JsonNode?> _pendingValues = [];
     private readonly Dictionary<SettingKey, JsonNode?> _pendingOwn = [];
     private readonly HashSet<string> _pendingClient = [];
     private bool _pendingRunes;
@@ -73,29 +70,38 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
     // ================= connection lifecycle =================
 
-    public async Task OnConnectedAsync(ILeagueGateway gateway, CancellationToken ct)
+    public Task OnConnectedAsync(ILeagueGateway gateway, CancellationToken ct) =>
+        OnConnectedAsync(gateway, new LeagueLoginSession(), ct);
+
+    internal async Task OnConnectedAsync(ILeagueGateway gateway, LeagueLoginSession session, CancellationToken ct)
     {
-        var connection = new CancellationTokenSource();
-        await LockedAsync(async token =>
+        await _lock.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
             ResetConnection();
-            _connectionCts = connection;
+            _session = session;
             _gateway = gateway;
             SetStatus(SyncState.Connected, null, warnings: []);
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, connection.Token);
+            var login = session.Token;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, login);
             var account = await gateway.GetCurrentAccountAsync(linked.Token).ConfigureAwait(false);
-            if (account is not null) await HandleLoginAsync(account, linked.Token).ConfigureAwait(false);
-        }, ct, useConnectionToken: false).ConfigureAwait(false);
+            if (account is not null) await HandleLoginAsync(account, login, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
-    /// <summary>Cancels in-flight work for the old connection, then resets state.</summary>
     public async Task OnDisconnectedAsync()
     {
-        var connection = _connectionCts;
-        if (connection is not null) await connection.CancelAsync().ConfigureAwait(false);
+        var session = _session;
+        session?.Close();
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (!ReferenceEquals(session, _session)) return;
             ResetConnection();
             SetStatus(SyncState.WaitingForClient, null, warnings: []);
         }
@@ -105,13 +111,20 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
     }
 
-    public Task HandleLcuEventAsync(LcuEvent e, CancellationToken ct) => LockedAsync(async token =>
+    public Task HandleLcuEventAsync(LcuEvent e, CancellationToken ct)
     {
-        if (_gateway is null) return;
+        var session = _session;
+        return session is null ? Task.CompletedTask : HandleObservedEventAsync(e, session, session.Observe(e), ct);
+    }
+
+    internal Task HandleObservedEventAsync(LcuEvent e, LeagueLoginSession session, CancellationToken login,
+        CancellationToken ct) => LockedAsync(async token =>
+    {
+        if (!ReferenceEquals(session, _session) || _gateway is null) return;
         switch (e.Uri)
         {
             case LeagueGateway.CurrentSummoner:
-                await OnSummonerEventAsync(e, token).ConfigureAwait(false);
+                await OnSummonerEventAsync(e, login, token).ConfigureAwait(false);
                 break;
             case LeagueGateway.GameflowPhase:
                 await OnPhaseEventAsync(e, token).ConfigureAwait(false);
@@ -139,7 +152,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
                 }
                 break;
         }
-    }, ct);
+    }, ct, login, accountBound: e.Uri != LeagueGateway.CurrentSummoner);
 
     // ================= user actions =================
 
@@ -163,22 +176,28 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     /// Pushes a backup back to its own account, unfiltered. Capturing is then paused for that
     /// account until the next login or "Sync now", so the restored values don't leak into the main setup.
     /// </summary>
-    public Task RestoreBackupAsync(string backupPath, CancellationToken ct) => LockedAsync(async token =>
+    public async Task<SyncStatus> RestoreBackupAsync(string backupPath, CancellationToken ct)
     {
-        if (_gateway is null || _account is null) throw new InvalidOperationException("Log into the account first.");
-        var backup = store.LoadBackup(backupPath);
-        if (backup.CapturedFromPuuid != _account.Puuid)
+        SyncStatus? result = null;
+        await LockedAsync(async token =>
         {
-            throw new InvalidOperationException($"This backup belongs to {backup.CapturedFromRiotId}. Log into that account to restore it.");
-        }
-        _phase = await _gateway.GetGameflowPhaseAsync(token).ConfigureAwait(false);
-        if (!IdlePhases.Contains(_phase)) throw new InvalidOperationException("Finish your game first, then restore.");
+            if (_gateway is null || _account is null) throw new InvalidOperationException("Log into the account first.");
+            var backup = store.LoadBackup(backupPath);
+            if (backup.CapturedFromPuuid != _account.Puuid)
+            {
+                throw new InvalidOperationException($"This backup belongs to {backup.CapturedFromRiotId}. Log into that account to restore it.");
+            }
+            _phase = await _gateway.GetGameflowPhaseAsync(token).ConfigureAwait(false);
+            if (!IdlePhases.Contains(_phase)) throw new InvalidOperationException("Finish your game first, then restore.");
 
-        ClearPending();
-        _pushPending = false;
-        await PushAsync(_gateway, _account, backup, new AppSettings(), token, $"Restored backup to {_account.RiotId}").ConfigureAwait(false);
-        _pushedPuuid = null;
-    }, ct);
+            ClearPending();
+            _pushPending = false;
+            await PushAsync(_gateway, _account, backup, new AppSettings(), token, restoring: true).ConfigureAwait(false);
+            _pushedPuuid = null;
+            result = _status;
+        }, ct).ConfigureAwait(false);
+        return result ?? throw new InvalidOperationException("The account changed during restore.");
+    }
 
     /// <summary>
     /// Saves the user's edits (and per-account values, when given) and pushes them right away when an account
@@ -210,17 +229,16 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     public void Dispose()
     {
         _flushTimer?.Dispose();
-        _loginCts?.Dispose();
-        _connectionCts?.Dispose();
+        _session?.Close();
         _lock.Dispose();
     }
 
     // ================= login / phase =================
 
-    private async Task OnSummonerEventAsync(LcuEvent e, CancellationToken ct)
+    private async Task OnSummonerEventAsync(LcuEvent e, CancellationToken login, CancellationToken ct)
     {
-        var puuid = e.Data?["puuid"]?.GetValueKind() == JsonValueKind.String ? e.Data["puuid"]!.GetValue<string>() : null;
-        if (e.EventType != "Delete" && !string.IsNullOrEmpty(puuid) && puuid == _account?.Puuid)
+        var puuid = LeagueLoginSession.SummonerPuuid(e);
+        if (!string.IsNullOrEmpty(puuid) && puuid == _account?.Puuid && login == _accountToken)
         {
             // Same account: just refresh what we show (name, icon, level) without re-syncing.
             if (LeagueGateway.ToAccount(e.Data) is { } updated && updated != _account)
@@ -234,10 +252,10 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         // Forget the old account first, so nothing can be captured into it while we look up the new one.
         ResetAccount();
         SetStatus(SyncState.Connected, null, warnings: []);
-        if (e.EventType == "Delete" || string.IsNullOrEmpty(puuid)) return;
+        if (string.IsNullOrEmpty(puuid)) return;
 
         var account = await _gateway!.GetCurrentAccountAsync(ct).ConfigureAwait(false);
-        if (account is not null) await HandleLoginAsync(account, ct).ConfigureAwait(false);
+        if (account is not null) await HandleLoginAsync(account, login, ct).ConfigureAwait(false);
     }
 
     private async Task OnPhaseEventAsync(LcuEvent e, CancellationToken ct)
@@ -261,11 +279,12 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         else if (_pushPending) await TryPushAsync(ct).ConfigureAwait(false);
     }
 
-    private async Task HandleLoginAsync(Account account, CancellationToken ct)
+    private async Task HandleLoginAsync(Account account, CancellationToken login, CancellationToken ct)
     {
+        if (!_session!.Confirm(account.Puuid, login)) return;
         ResetAccount();
         _account = account;
-        _loginCts = CancellationTokenSource.CreateLinkedTokenSource(_connectionCts?.Token ?? CancellationToken.None);
+        _accountToken = login;
         SetStatus(SyncState.Connected, account, warnings: []);
 
         if (store.LoadMainSetup() is null)
@@ -290,7 +309,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             return;
         }
         _promptPending = false;
-        PendingPrompt = RunPromptAsync(_account, FirstRunPrompt, _loginCts!.Token);
+        PendingPrompt = RunPromptAsync(_account, FirstRunPrompt, _accountToken);
     }
 
     private async Task RunPromptAsync(Account account, Func<Account, CancellationToken, Task<bool>> prompt, CancellationToken loginToken)
@@ -319,12 +338,12 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     {
         var (snapshot, failed, warnings) = await CaptureAsync(gateway, account, ct).ConfigureAwait(false);
         var previous = store.LoadMainSetup();
-        if (previous is null && failed.Contains(Part.Game) && failed.Contains(Part.Input))
+        if (previous is null && failed.Contains(SnapshotPart.Game) && failed.Contains(SnapshotPart.Input))
         {
             SetStatus(SyncState.Synced, account, warnings: [.. warnings, "Couldn't read this account's settings. Try again in a moment."]);
             return;
         }
-        if (previous is not null) KeepPreviousForFailedParts(snapshot, previous, failed);
+        if (previous is not null) snapshot.CopyPartsFrom(previous, failed);
         snapshot.RunePages = RunePagePlanner.WithoutToolPages(snapshot.RunePages, store.LoadSettings().ToolRunePagePrefixes);
 
         ct.ThrowIfCancellationRequested();
@@ -332,16 +351,6 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         MarkPushed(account, AllSections, runeShortfallCapacity: null);
         SetStatus(SyncState.Synced, account, lastSync: time.GetUtcNow(), warnings: warnings);
         Notify?.Invoke($"Main setup saved from {account.RiotId}");
-    }
-
-    private static void KeepPreviousForFailedParts(SetupSnapshot snapshot, SetupSnapshot previous, IReadOnlySet<Part> failed)
-    {
-        if (failed.Contains(Part.Game)) snapshot.GameSettings = previous.GameSettings;
-        if (failed.Contains(Part.Input)) snapshot.InputSettings = previous.InputSettings;
-        if (failed.Contains(Part.Video)) snapshot.VideoSettings = previous.VideoSettings;
-        if (failed.Contains(Part.Runes)) snapshot.RunePages = previous.RunePages;
-        if (failed.Contains(Part.ItemSets)) snapshot.ItemSets = previous.ItemSets;
-        if (failed.Contains(Part.Client)) snapshot.ClientSettings = previous.ClientSettings;
     }
 
     // ================= push =================
@@ -366,16 +375,23 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
     /// <param name="overrides">Each account's own values, applied on top for this account (null for a restore, which is exact).</param>
     private async Task PushAsync(ILeagueGateway gateway, Account account, SetupSnapshot source, AppSettings settings, CancellationToken ct,
-        string? doneMessage = null, AccountOverrides? overrides = null)
+        bool restoring = false, AccountOverrides? overrides = null)
     {
         SetStatus(SyncState.Syncing, account);
 
         var (backup, unreadable, warnings) = await CaptureAsync(gateway, account, ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        if ((await gateway.GetCurrentAccountAsync(ct).ConfigureAwait(false))?.Puuid != account.Puuid)
+        {
+            SetStatus(SyncState.Error, account, warnings: ["The logged-in account changed during backup."]);
+            throw new InvalidOperationException("The logged-in account changed during backup.");
+        }
+        ct.ThrowIfCancellationRequested();
         try
         {
-            store.SaveBackup(backup);
+            store.SaveBackup(backup, unreadable);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             // Never change an account we couldn't back up first.
             FileLog.Error($"Backup for {account.RiotId} failed; nothing was changed", e);
@@ -386,8 +402,21 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
         var pushed = new HashSet<SyncSection>();
 
-        bool Skipped(Part part, string label)
+        bool Skipped(SnapshotPart part, string label)
         {
+            ct.ThrowIfCancellationRequested();
+            if (restoring && source.UnreadableParts is null &&
+                ((part == SnapshotPart.Runes && source.RunePages.Count == 0) ||
+                 (part == SnapshotPart.ItemSets && source.ItemSets.Count == 0)))
+            {
+                warnings.Add($"{label} skipped: this older backup did not record whether the empty list was read successfully.");
+                return true;
+            }
+            if (restoring && source.UnreadableParts?.Contains(part) == true)
+            {
+                warnings.Add($"{label} skipped: the selected backup could not read them.");
+                return true;
+            }
             if (!unreadable.Contains(part)) return false;
             warnings.Add($"{label} skipped: couldn't back them up first.");
             return true;
@@ -402,9 +431,9 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
         var game = Effective(SettingsKind.Game);
         var input = Effective(SettingsKind.Input);
-        var gameOk = game.Count > 0 && !Skipped(Part.Game, "Game settings")
+        var gameOk = !Skipped(SnapshotPart.Game, "Game settings") && game.Count > 0
             && await TryAsync("Game settings", warnings, () => gateway.PatchGameSettingsAsync(game, ct)).ConfigureAwait(false);
-        var inputOk = input.Count > 0 && !Skipped(Part.Input, "Hotkeys")
+        var inputOk = !Skipped(SnapshotPart.Input, "Hotkeys") && input.Count > 0
             && await TryAsync("Hotkeys", warnings, () => gateway.PatchInputSettingsAsync(input, ct)).ConfigureAwait(false);
         if (gameOk || inputOk)
         {
@@ -414,7 +443,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         if (inputOk) await VerifyKeptAsync(SettingsKind.Input, input, () => gateway.GetInputSettingsAsync(ct), pushed, warnings).ConfigureAwait(false);
 
         // Local graphics keys.
-        if (settings.IsEnabled(SyncSection.Video) && !Skipped(Part.Video, "Graphics")
+        if (settings.IsEnabled(SyncSection.Video) && !Skipped(SnapshotPart.Video, "Graphics")
             && await TryAsync("Graphics", warnings, () =>
             {
                 var changes = SettingsDiff.Changes(Effective(SettingsKind.Video), video.Read());
@@ -427,18 +456,18 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
         // Rune pages.
         int? shortfallCapacity = null;
-        if (settings.IsEnabled(SyncSection.RunePages) && !Skipped(Part.Runes, "Rune pages"))
+        if (settings.IsEnabled(SyncSection.RunePages) && !Skipped(SnapshotPart.Runes, "Rune pages"))
         {
-            // Tool pages (Porofessor) are never synced; a matching account with one in its free slot is left alone.
-            var sourcePages = RunePagePlanner.WithoutToolPages(source.RunePages, settings.ToolRunePagePrefixes);
-            var accountPages = RunePagePlanner.WithoutToolPages(backup.RunePages, settings.ToolRunePagePrefixes);
-            if (sourcePages.Count == 0 || SamePages(accountPages, sourcePages))
+            // Normal sync leaves room for tools. A restore uses the complete backed-up list.
+            var sourcePages = restoring ? source.RunePages : RunePagePlanner.WithoutToolPages(source.RunePages, settings.ToolRunePagePrefixes);
+            var accountPages = restoring ? backup.RunePages : RunePagePlanner.WithoutToolPages(backup.RunePages, settings.ToolRunePagePrefixes);
+            if ((sourcePages.Count == 0 && !restoring) || SamePages(accountPages, sourcePages, keepCurrentPage: restoring))
             {
                 pushed.Add(SyncSection.RunePages);
             }
             else if (await TryAsync("Rune pages", warnings, async () =>
                      {
-                         shortfallCapacity = await PushRunePagesAsync(gateway, sourcePages, settings.ReservedRunePageSlots, warnings, ct)
+                         shortfallCapacity = await PushRunePagesAsync(gateway, sourcePages, restoring ? 0 : settings.ReservedRunePageSlots, restoring, warnings, ct)
                              .ConfigureAwait(false);
                      }).ConfigureAwait(false))
             {
@@ -447,9 +476,9 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
 
         // Item sets.
-        if (settings.IsEnabled(SyncSection.ItemSets) && !Skipped(Part.ItemSets, "Item sets"))
+        if (settings.IsEnabled(SyncSection.ItemSets) && !Skipped(SnapshotPart.ItemSets, "Item sets"))
         {
-            if (source.ItemSets.Count == 0
+            if ((!restoring && source.ItemSets.Count == 0)
                 || await TryAsync("Item sets", warnings, () => gateway.PutItemSetsAsync(account, source.ItemSets, ct)).ConfigureAwait(false))
             {
                 pushed.Add(SyncSection.ItemSets);
@@ -457,7 +486,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
 
         // Client preferences.
-        if (settings.IsEnabled(SyncSection.ClientSettings) && !Skipped(Part.Client, "Client settings"))
+        if (settings.IsEnabled(SyncSection.ClientSettings) && !Skipped(SnapshotPart.Client, "Client settings"))
         {
             var allOk = true;
             foreach (var category in SectionMap.ClientSettingsCategories)
@@ -474,7 +503,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         SetStatus(SyncState.Synced, account, lastSync: time.GetUtcNow(), warnings: warnings);
         foreach (var w in warnings) FileLog.Info($"Sync to {account.RiotId}: {w}");
 
-        var message = doneMessage ?? $"Synced your setup to {account.RiotId}";
+        var message = restoring ? $"Restored backup to {account.RiotId}" : $"Synced your setup to {account.RiotId}";
         Notify?.Invoke(warnings.Count == 0
             ? message
             : $"{message} ({warnings.Count} warning{(warnings.Count == 1 ? "" : "s")})");
@@ -511,12 +540,14 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     /// Replaces the account's pages, leaving <paramref name="reservedSlots"/> empty (any tool page is cleared to free
     /// its slot; the tool recreates it in champ select). Returns the usable slot count when not all pages fit.
     /// </summary>
-    private static async Task<int?> PushRunePagesAsync(ILeagueGateway gateway, JsonArray mainPages, int reservedSlots,
+    private static async Task<int?> PushRunePagesAsync(ILeagueGateway gateway, JsonArray mainPages, int reservedSlots, bool restoring,
         List<string> warnings, CancellationToken ct)
     {
         var target = await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false);
         var capacity = await gateway.GetRunePageCapacityAsync(ct).ConfigureAwait(false);
-        var plan = RunePagePlanner.Plan(mainPages, target, capacity, reservedSlots);
+        var plan = RunePagePlanner.Plan(mainPages, target, capacity, reservedSlots, keepCurrentPage: restoring);
+        if (restoring && plan.Skipped.Count > 0)
+            throw new InvalidOperationException("The backup has more rune pages than this account can hold. Its current pages were kept.");
         foreach (var id in plan.DeleteIds) await gateway.DeleteRunePageAsync(id, ct).ConfigureAwait(false);
         foreach (var page in plan.Create) await gateway.CreateRunePageAsync(page, ct).ConfigureAwait(false);
         if (plan.Skipped.Count == 0) return null;
@@ -546,43 +577,31 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         if (main is null) return;
         var puuid = _account!.Puuid;
 
-        // Settings this account has its own value for: changes update that value, not the main setup.
         var overrides = store.LoadOverrides();
-        var ownKeys = overrides.KeysFor(puuid, kind).ToList();
-        var queued = false;
-        foreach (var key in ownKeys)
-        {
-            if (!_pushedSections.Contains(SectionMap.SectionFor(kind, key.Section))) continue;
-            if (values[key.Section] is not JsonObject section || !section.TryGetPropertyValue(key.Name, out var value)) continue;
-            if (JsonNode.DeepEquals(value, overrides.Get(puuid, key))) continue;
-            _pendingOwn[key] = value?.DeepClone();
-            queued = true;
-        }
-
         var settings = store.LoadSettings();
-        var incoming = OnlyPushedSections(SettingsFilter.Apply(values, kind, settings), kind);
-        foreach (var key in ownKeys) (incoming[key.Section] as JsonObject)?.Remove(key.Name);
-        var changes = SettingsDiff.Changes(incoming, SettingsFilter.Apply(main.Settings(kind), kind, settings));
-        if (changes.Count > 0)
+        var queued = false;
+        foreach (var (section, node) in values)
         {
-            if (!_pendingValues.TryGetValue(kind, out var pending))
+            var group = SectionMap.SectionFor(kind, section);
+            if (node is not JsonObject incoming || !_pushedSections.Contains(group)) continue;
+            var saved = main.Settings(kind)[section] as JsonObject;
+            foreach (var (name, value) in incoming)
             {
-                pending = [];
-                _pendingValues[kind] = pending;
+                var key = new SettingKey(kind, section, name);
+                var own = overrides.Has(puuid, key);
+                if (!own && (!settings.IsEnabled(group) || settings.IsExcluded(key))) continue;
+                var pending = own ? _pendingOwn : _pendingValues;
+                var baseline = own ? overrides.Get(puuid, key) : saved?[name];
+                if ((own || saved?.ContainsKey(name) == true) && JsonNode.DeepEquals(value, baseline))
+                {
+                    pending.Remove(key); // Reverted before the flush; keep changes to other keys.
+                    continue;
+                }
+                pending[key] = value?.DeepClone();
+                queued = true;
             }
-            SettingsDiff.MergeInto(pending, changes);
-            queued = true;
         }
         if (queued) ScheduleFlush();
-    }
-
-    private JsonObject OnlyPushedSections(JsonObject values, SettingsKind kind)
-    {
-        foreach (var section in values.Select(kv => kv.Key).ToList())
-        {
-            if (!_pushedSections.Contains(SectionMap.SectionFor(kind, section))) values.Remove(section);
-        }
-        return values;
     }
 
     private void QueueFlag(SyncSection section, Action mark)
@@ -626,9 +645,15 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
 
         var changed = false;
-        foreach (var (kind, values) in _pendingValues)
+        foreach (var (key, value) in _pendingValues)
         {
-            SettingsDiff.MergeInto(main.Settings(kind), values);
+            var target = main.Settings(key.Kind);
+            if (target[key.Section] is not JsonObject section)
+            {
+                section = [];
+                target[key.Section] = section;
+            }
+            section[key.Name] = value;
             changed = true;
         }
 
@@ -702,19 +727,19 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     }
 
     /// <summary>Compares the parts of rune pages we sync, ignoring server ids and timestamps.</summary>
-    private static bool SamePages(JsonArray a, JsonArray b) =>
+    private static bool SamePages(JsonArray a, JsonArray b, bool keepCurrentPage = false) =>
         JsonNode.DeepEquals(
-            new JsonArray([.. RunePagePlanner.Plan(a, [], int.MaxValue).Create]),
-            new JsonArray([.. RunePagePlanner.Plan(b, [], int.MaxValue).Create]));
+            new JsonArray([.. RunePagePlanner.Plan(a, [], int.MaxValue, keepCurrentPage: keepCurrentPage).Create]),
+            new JsonArray([.. RunePagePlanner.Plan(b, [], int.MaxValue, keepCurrentPage: keepCurrentPage).Create]));
 
     // ================= reading an account =================
 
     /// <summary>Reads everything the account has (unfiltered). Parts that fail are left empty and reported.</summary>
-    private async Task<(SetupSnapshot Snapshot, HashSet<Part> Failed, List<string> Warnings)> CaptureAsync(
+    private async Task<(SetupSnapshot Snapshot, HashSet<SnapshotPart> Failed, List<string> Warnings)> CaptureAsync(
         ILeagueGateway gateway, Account account, CancellationToken ct)
     {
         var warnings = new List<string>();
-        var failed = new HashSet<Part>();
+        var failed = new HashSet<SnapshotPart>();
         var snapshot = new SetupSnapshot
         {
             CapturedAt = time.GetUtcNow(),
@@ -722,17 +747,17 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             CapturedFromRiotId = account.RiotId,
         };
 
-        async Task Read(Part part, string label, Func<Task> action)
+        async Task Read(SnapshotPart part, string label, Func<Task> action)
         {
             if (!await TryAsync(label, warnings, action).ConfigureAwait(false)) failed.Add(part);
         }
 
-        await Read(Part.Game, "Reading game settings", async () => snapshot.GameSettings = await gateway.GetGameSettingsAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
-        await Read(Part.Input, "Reading hotkeys", async () => snapshot.InputSettings = await gateway.GetInputSettingsAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
-        await Read(Part.Video, "Reading graphics", () => { snapshot.VideoSettings = video.Read(); return Task.CompletedTask; }).ConfigureAwait(false);
-        await Read(Part.Runes, "Reading rune pages", async () => snapshot.RunePages = await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
-        await Read(Part.ItemSets, "Reading item sets", async () => snapshot.ItemSets = await gateway.GetItemSetsAsync(account, ct).ConfigureAwait(false)).ConfigureAwait(false);
-        await Read(Part.Client, "Reading client settings", async () =>
+        await Read(SnapshotPart.Game, "Reading game settings", async () => snapshot.GameSettings = await gateway.GetGameSettingsAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
+        await Read(SnapshotPart.Input, "Reading hotkeys", async () => snapshot.InputSettings = await gateway.GetInputSettingsAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
+        await Read(SnapshotPart.Video, "Reading graphics", () => { snapshot.VideoSettings = video.Read(); return Task.CompletedTask; }).ConfigureAwait(false);
+        await Read(SnapshotPart.Runes, "Reading rune pages", async () => snapshot.RunePages = await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false)).ConfigureAwait(false);
+        await Read(SnapshotPart.ItemSets, "Reading item sets", async () => snapshot.ItemSets = await gateway.GetItemSetsAsync(account, ct).ConfigureAwait(false)).ConfigureAwait(false);
+        await Read(SnapshotPart.Client, "Reading client settings", async () =>
         {
             foreach (var category in SectionMap.ClientSettingsCategories)
             {
@@ -747,12 +772,12 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
     /// <summary>
     /// Runs <paramref name="body"/> under the engine lock with a token that is cancelled when the
-    /// connection drops. Cancellation caused by a disconnect ends the work quietly.
+    /// login changes or the connection drops. Stale work ends quietly.
     /// </summary>
-    private async Task LockedAsync(Func<CancellationToken, Task> body, CancellationToken ct, bool useConnectionToken = true)
+    private async Task LockedAsync(Func<CancellationToken, Task> body, CancellationToken ct, CancellationToken? observedLogin = null, bool accountBound = true)
     {
-        var connectionToken = useConnectionToken ? _connectionCts?.Token ?? CancellationToken.None : CancellationToken.None;
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, connectionToken);
+        var login = observedLogin ?? _session?.Token ?? CancellationToken.None;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, login);
         try
         {
             await _lock.WaitAsync(linked.Token).ConfigureAwait(false);
@@ -763,6 +788,8 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
         try
         {
+            linked.Token.ThrowIfCancellationRequested();
+            if (accountBound && _account is not null && _accountToken != login) return;
             await body(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -777,9 +804,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
     private void ResetAccount()
     {
-        _loginCts?.Cancel();
-        _loginCts?.Dispose();
-        _loginCts = null;
+        _accountToken = default;
         _account = null;
         _pushedPuuid = null;
         _pushedSections.Clear();
@@ -792,8 +817,8 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private void ResetConnection()
     {
         ResetAccount();
-        _connectionCts?.Dispose();
-        _connectionCts = null;
+        _session?.Close();
+        _session = null;
         _gateway = null;
     }
 

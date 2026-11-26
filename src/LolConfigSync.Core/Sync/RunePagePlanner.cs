@@ -12,7 +12,7 @@ public static class RunePagePlanner
     private static readonly string[] PageFields = ["name", "primaryStyleId", "subStyleId", "selectedPerkIds"];
 
     /// <param name="reservedSlots">Slots left empty for tools like Porofessor that create their own page in champ select.</param>
-    public static RunePagePlan Plan(JsonArray mainPages, JsonArray targetEditablePages, int capacity, int reservedSlots = 0)
+    public static RunePagePlan Plan(JsonArray mainPages, JsonArray targetEditablePages, int capacity, int reservedSlots = 0, bool keepCurrentPage = false)
     {
         var deletes = targetEditablePages
             .OfType<JsonObject>()
@@ -22,7 +22,7 @@ public static class RunePagePlanner
 
         var pages = mainPages.OfType<JsonObject>().ToList();
         var usable = Math.Max(0, capacity - Math.Max(0, reservedSlots));
-        var create = pages.Take(usable).Select(Strip).ToList();
+        var create = pages.Take(usable).Select(page => Strip(page, keepCurrentPage)).ToList();
         var skipped = pages.Skip(usable).Select(p => p["name"]?.GetValue<string>() ?? "(unnamed)").ToList();
         return new RunePagePlan(deletes, create, skipped, usable);
     }
@@ -42,14 +42,14 @@ public static class RunePagePlanner
         return [.. pages.OfType<JsonObject>().Where(p => !IsToolPage(p, list)).Select(p => p.DeepClone())];
     }
 
-    private static JsonObject Strip(JsonObject page)
+    private static JsonObject Strip(JsonObject page, bool keepCurrentPage)
     {
         var clean = new JsonObject();
         foreach (var field in PageFields)
         {
             if (page[field] is { } value) clean[field] = value.DeepClone();
         }
-        clean["current"] = false;
+        clean["current"] = keepCurrentPage && page["current"]?.GetValueKind() == JsonValueKind.True;
         return clean;
     }
 }

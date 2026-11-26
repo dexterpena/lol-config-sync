@@ -80,6 +80,17 @@ public class LeagueGatewayTests
     }
 
     [Fact]
+    public async Task Missing_collection_payloads_are_read_failures()
+    {
+        _lcu.Responses[LeagueGateway.RunePages] = "null";
+        _lcu.Responses["/lol-item-sets/v1/item-sets/7/sets"] = "{}";
+        _lcu.Responses[LeagueGateway.RuneInventory] = "{}";
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => Gateway.GetEditableRunePagesAsync());
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => Gateway.GetItemSetsAsync(new("p", "Alt", 7)));
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => Gateway.GetRunePageCapacityAsync());
+    }
+
+    [Fact]
     public async Task Rune_capacity_reads_owned_page_count()
     {
         _lcu.Responses["/lol-perks/v1/inventory"] = """{"ownedPageCount":3,"customPageCount":3}""";

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using LolConfigSync.Core.Lcu;
 
@@ -65,7 +66,7 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
 
     public async Task<JsonArray> GetEditableRunePagesAsync(CancellationToken ct = default)
     {
-        var pages = await lcu.GetAsync(RunePages, ct).ConfigureAwait(false) as JsonArray ?? [];
+        var pages = await lcu.GetAsync(RunePages, ct).ConfigureAwait(false) as JsonArray ?? throw new JsonException("Expected the account's rune pages.");
         return [.. pages
             .OfType<JsonObject>()
             .Where(p => p["isEditable"]?.GetValue<bool>() == true && p["isDeletable"]?.GetValue<bool>() == true)
@@ -73,7 +74,7 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
     }
 
     public async Task<int> GetRunePageCapacityAsync(CancellationToken ct = default) =>
-        (await lcu.GetAsync(RuneInventory, ct).ConfigureAwait(false))?["ownedPageCount"]?.GetValue<int>() ?? 0;
+        (await lcu.GetAsync(RuneInventory, ct).ConfigureAwait(false))?["ownedPageCount"]?.GetValue<int>() ?? throw new JsonException("Missing rune page capacity.");
 
     public Task DeleteRunePageAsync(long id, CancellationToken ct = default) => lcu.SendAsync(HttpMethod.Delete, $"{RunePages}/{id}", null, ct);
     public Task CreateRunePageAsync(JsonObject page, CancellationToken ct = default) => lcu.SendAsync(HttpMethod.Post, RunePages, page, ct);
@@ -81,7 +82,7 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
     public async Task<JsonArray> GetItemSetsAsync(Account account, CancellationToken ct = default)
     {
         var node = await lcu.GetAsync(ItemSetsPath(account), ct).ConfigureAwait(false);
-        return node?["itemSets"]?.DeepClone() as JsonArray ?? [];
+        return node?["itemSets"]?.DeepClone() as JsonArray ?? throw new JsonException("Expected the account's item sets.");
     }
 
     public Task PutItemSetsAsync(Account account, JsonArray sets, CancellationToken ct = default) =>
@@ -101,7 +102,7 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
     private static string ItemSetsPath(Account account) => $"{ItemSetsPrefix}{account.SummonerId}/sets";
 
     private async Task<JsonObject> GetObjectAsync(string path, CancellationToken ct) =>
-        await lcu.GetAsync(path, ct).ConfigureAwait(false) as JsonObject ?? [];
+        await lcu.GetAsync(path, ct).ConfigureAwait(false) as JsonObject ?? throw new JsonException($"Expected settings at {path}.");
 
     private async Task<JsonNode?> GetOrNullAsync(string path, CancellationToken ct)
     {
