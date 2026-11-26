@@ -1,7 +1,7 @@
 # LoL Config Sync — Design
 
 Date: 2026-11-26
-Status: Draft, awaiting approval
+Status: Approved 2026-11-26
 
 ## Intent
 
@@ -16,7 +16,9 @@ The user plays League of Legends on several accounts and switches between them c
   - **Rune pages**
   - **Item sets**
   - **Client settings** (League client account preferences)
-  - Each category has an on/off toggle; all on by default.
+  - **The user picks what syncs**, at two levels:
+    - **Section toggles** (all on by default): Hotkeys, Sound, Interface, Game, Video, Rune pages, Item sets, Client settings. Game settings are split into the five in-game Settings tabs so e.g. Video can be left per-account.
+    - **Per-setting exclusions**: any individual setting can be marked "don't sync" in the editor. Excluded settings are never pushed or captured; each account keeps its own value.
 - A GUI to see sync status, view and edit the main setup, and restore backups.
 - Never permanently lose an account's own original settings.
 
@@ -55,7 +57,7 @@ The user plays League of Legends on several accounts and switches between them c
 - C# / .NET 10, WPF desktop app, single `.exe` publish. Tray icon via `H.NotifyIcon.Wpf` (builder may substitute an equivalent).
 - Data in `%APPDATA%\LolConfigSync\`:
   - `main-setup.json` — the main setup (all categories, plus a timestamp and which account it was last captured from).
-  - `settings.json` — app preferences (category toggles, start with Windows, notifications).
+  - `settings.json` — app preferences (section toggles, per-setting exclusion list, start with Windows, notifications).
   - `backups\<puuid>\<timestamp>.json` — an account's own settings, snapshotted before the app first overwrites them, and before every push after that. Keep the last 10 per account.
   - `log.txt` — rolling log for troubleshooting.
 
@@ -82,15 +84,16 @@ The user plays League of Legends on several accounts and switches between them c
 │ ● Connected — Dexter#NA1      Last sync: 2 min ago │
 │ Main setup captured from: Dexter#NA1, Nov 26       │
 │                                                    │
-│ Sync:  [x] Game settings  [x] Rune pages           │
-│        [x] Item sets      [x] Client settings      │
+│ Sync:  [x] Hotkeys   [x] Sound      [x] Interface  │
+│        [x] Game      [x] Video                     │
+│        [x] Rune pages [x] Item sets [x] Client     │
 │                                                    │
 │ [Edit setup]  [Use this account as main]  [Sync now]│
 │ [Backups / restore]          [x] Start with Windows │
 └────────────────────────────────────────────────────┘
 ```
 
-- **Edit setup** — tabbed editor (Hotkeys, Video, Interface, Game, Sound, plus a raw "All settings" searchable table for anything without a friendly label). Saving updates the main setup and pushes to the logged-in account immediately if one is connected and idle.
+- **Edit setup** — tabbed editor (Hotkeys, Video, Interface, Game, Sound, plus a raw "All settings" searchable table for anything without a friendly label). Every setting row has a "sync" checkbox (unchecked = per-setting exclusion). Saving updates the main setup and pushes to the logged-in account immediately if one is connected and idle.
 - **Use this account as main** — re-capture the main setup from the current account.
 - **Sync now** — force a push to the current account.
 - **Backups** — list per account and timestamp; Restore pushes that snapshot back to its own account (only when that account is logged in).
