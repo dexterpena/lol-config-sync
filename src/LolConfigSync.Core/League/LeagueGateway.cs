@@ -17,14 +17,37 @@ public sealed class LeagueGateway(ILcuClient lcu) : ILeagueGateway
     public const string ItemSetsPrefix = "/lol-item-sets/v1/item-sets/";
     public const string ClientSettingsPrefix = "/lol-settings/v2/account/LCUPreferences/";
 
-    public async Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default)
+    public async Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default) =>
+        ToAccount(await GetOrNullAsync(CurrentSummoner, ct).ConfigureAwait(false));
+
+    /// <summary>Maps a <c>current-summoner</c> payload to an <see cref="Account"/>; null when nobody is logged in.</summary>
+    public static Account? ToAccount(JsonNode? node)
     {
-        var node = await GetOrNullAsync(CurrentSummoner, ct).ConfigureAwait(false);
-        var puuid = node?["puuid"]?.GetValue<string>();
+        if (node is not JsonObject summoner || summoner["puuid"]?.GetValueKind() != System.Text.Json.JsonValueKind.String) return null;
+        var puuid = summoner["puuid"]!.GetValue<string>();
         if (string.IsNullOrEmpty(puuid)) return null;
-        var riotId = $"{node!["gameName"]?.GetValue<string>()}#{node["tagLine"]?.GetValue<string>()}";
-        return new Account(puuid, riotId, node["summonerId"]?.GetValue<long>() ?? 0);
+        var riotId = $"{Text(summoner, "gameName")}#{Text(summoner, "tagLine")}";
+        return new Account(puuid, riotId, Number<long>(summoner, "summonerId"), Number<int>(summoner, "profileIconId"),
+            Number<int>(summoner, "summonerLevel"));
     }
+
+    public async Task<byte[]?> GetProfileIconAsync(int iconId, CancellationToken ct = default)
+    {
+        try
+        {
+            return await lcu.GetBytesAsync($"/lol-game-data/assets/v1/profile-icons/{iconId}.jpg", ct).ConfigureAwait(false);
+        }
+        catch (LcuException)
+        {
+            return null;
+        }
+    }
+
+    private static string Text(JsonObject o, string key) =>
+        o[key]?.GetValueKind() == System.Text.Json.JsonValueKind.String ? o[key]!.GetValue<string>() : "";
+
+    private static T Number<T>(JsonObject o, string key) where T : struct =>
+        o[key]?.GetValueKind() == System.Text.Json.JsonValueKind.Number ? o[key]!.GetValue<T>() : default;
 
     public async Task<string> GetGameflowPhaseAsync(CancellationToken ct = default) =>
         (await lcu.GetAsync(GameflowPhase, ct).ConfigureAwait(false))?.GetValue<string>() ?? "None";

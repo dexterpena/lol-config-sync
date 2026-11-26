@@ -7,6 +7,10 @@ namespace LolConfigSync.Core.Tests.Fakes;
 public sealed class FakeLcuClient : ILcuClient
 {
     public Dictionary<string, string> Responses { get; } = [];
+    public Dictionary<string, byte[]> Binary { get; } = [];
+
+    public Task<byte[]> GetBytesAsync(string path, CancellationToken ct = default) =>
+        Binary.TryGetValue(path, out var bytes) ? Task.FromResult(bytes) : throw new LcuException(404, path);
     public List<(HttpMethod Method, string Path, string? Body)> Sent { get; } = [];
 
     public Task<JsonNode?> GetAsync(string path, CancellationToken ct = default) =>

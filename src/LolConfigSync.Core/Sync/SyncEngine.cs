@@ -204,7 +204,16 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private async Task OnSummonerEventAsync(LcuEvent e, CancellationToken ct)
     {
         var puuid = e.Data?["puuid"]?.GetValueKind() == JsonValueKind.String ? e.Data["puuid"]!.GetValue<string>() : null;
-        if (e.EventType != "Delete" && !string.IsNullOrEmpty(puuid) && puuid == _account?.Puuid) return;
+        if (e.EventType != "Delete" && !string.IsNullOrEmpty(puuid) && puuid == _account?.Puuid)
+        {
+            // Same account: just refresh what we show (name, icon, level) without re-syncing.
+            if (LeagueGateway.ToAccount(e.Data) is { } updated && updated != _account)
+            {
+                _account = updated;
+                SetStatus(_status.State, updated);
+            }
+            return;
+        }
 
         // Forget the old account first, so nothing can be captured into it while we look up the new one.
         ResetAccount();

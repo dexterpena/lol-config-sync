@@ -55,6 +55,7 @@ public sealed class FakeLeagueGateway : ILeagueGateway
     public Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default) => Task.FromResult(Account);
     public Task<string> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(Phase);
     public Task<bool> IsGameSettingsReadyAsync(CancellationToken ct = default) => Task.FromResult(SettingsReady);
+    public Task<byte[]?> GetProfileIconAsync(int iconId, CancellationToken ct = default) => Task.FromResult<byte[]?>(null);
 
     public Task<JsonObject> GetGameSettingsAsync(CancellationToken ct = default) => Read("game", () => (JsonObject)State.Game.DeepClone());
     public Task<JsonObject> GetInputSettingsAsync(CancellationToken ct = default) => Read("input", () => (JsonObject)State.Input.DeepClone());

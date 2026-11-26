@@ -30,6 +30,13 @@ public sealed class LcuHttpClient : ILcuClient, IDisposable
         return await ReadAsync(response, path, ct).ConfigureAwait(false);
     }
 
+    public async Task<byte[]> GetBytesAsync(string path, CancellationToken ct = default)
+    {
+        using var response = await _http.GetAsync(path, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode) throw new LcuException((int)response.StatusCode, path);
+        return await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+    }
+
     public async Task SendAsync(HttpMethod method, string path, JsonNode? body, CancellationToken ct = default)
     {
         using var request = new HttpRequestMessage(method, path);

@@ -59,6 +59,14 @@ public class LcuHttpClientTests
     }
 
     [Fact]
+    public async Task Get_bytes_returns_raw_body()
+    {
+        using var client = new LcuHttpClient(Lockfile, new StubHandler(HttpStatusCode.OK, "abc"));
+
+        Assert.Equal("abc"u8.ToArray(), await client.GetBytesAsync("/img.jpg"));
+    }
+
+    [Fact]
     public async Task Empty_success_body_returns_null()
     {
         using var client = new LcuHttpClient(Lockfile, new StubHandler(HttpStatusCode.NoContent, ""));

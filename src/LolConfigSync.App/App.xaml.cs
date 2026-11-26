@@ -127,7 +127,7 @@ public partial class App : Application, IAppShell
         {
             _host.Engine.StatusChanged += _ => Dispatcher.BeginInvoke(() =>
             {
-                if (_tray is not null && _vm is not null) _tray.ToolTipText = $"LoL Config Sync\n{_vm.Headline}";
+                if (_tray is not null && _vm is not null) _tray.ToolTipText = $"LoL Config Sync\n{_vm.AccountName}\n{_vm.Headline}";
             });
         }
     }

@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LolConfigSync.App.Platform;
 using LolConfigSync.Core.Hosting;
@@ -101,6 +104,58 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Where the main setup, settings and backups are stored.</summary>
     public string DataFolder => _store.RootDir;
 
+    // ---- who's logged in ----
+    private ImageSource? _accountIcon;
+    private (string Puuid, int Icon)? _iconFor;
+
+    public string AccountName => _host.Engine.Status.Account?.RiotId ?? "Nobody logged in";
+
+    public string AccountDetail => _host.Engine.Status.Account is { } a
+        ? (a.SummonerLevel > 0 ? $"Level {a.SummonerLevel}" : "Logged in")
+        : _host.Engine.Status.State == SyncState.WaitingForClient ? "The League client isn't open" : "Log into the League client";
+
+    /// <summary>First letter of the Riot ID, shown until (or instead of) the profile icon.</summary>
+    public string AccountInitial => _host.Engine.Status.Account?.RiotId is { Length: > 0 } id ? id[..1].ToUpperInvariant() : "?";
+
+    public ImageSource? AccountIcon
+    {
+        get => _accountIcon;
+        private set
+        {
+            if (Set(ref _accountIcon, value)) Raise(nameof(HasAccountIcon));
+        }
+    }
+
+    public bool HasAccountIcon => _accountIcon is not null;
+
+    private async void RefreshAccountIcon()
+    {
+        var account = _host.Engine.Status.Account;
+        var key = account is null ? ((string, int)?)null : (account.Puuid, account.ProfileIconId);
+        if (key == _iconFor) return;
+        _iconFor = key;
+        AccountIcon = null;
+        if (account is null || account.ProfileIconId <= 0) return;
+
+        var bytes = await _host.GetProfileIconAsync(account.ProfileIconId);
+        if (bytes is null || _iconFor != key) return;
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.StreamSource = new MemoryStream(bytes);
+            image.DecodePixelWidth = 96;
+            image.EndInit();
+            image.Freeze();
+            AccountIcon = image;
+        }
+        catch (Exception e) when (e is NotSupportedException or IOException or FileFormatException)
+        {
+            AccountIcon = null;
+        }
+    }
+
     public StatusTone Tone => _view.Tone;
     public string Headline => _view.Headline;
     public string Detail => _view.Detail;
@@ -137,6 +192,10 @@ public sealed class MainViewModel : ObservableObject
         Warnings.Clear();
         foreach (var w in status.Warnings) Warnings.Add(w);
 
+        Raise(nameof(AccountName));
+        Raise(nameof(AccountDetail));
+        Raise(nameof(AccountInitial));
+        RefreshAccountIcon();
         Raise(nameof(Tone));
         Raise(nameof(Headline));
         Raise(nameof(Detail));

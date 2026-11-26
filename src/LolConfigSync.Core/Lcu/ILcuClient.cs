@@ -8,6 +8,9 @@ public interface ILcuClient
     /// <summary>GETs <paramref name="path"/>. Throws <see cref="LcuException"/> on a non-2xx response.</summary>
     Task<JsonNode?> GetAsync(string path, CancellationToken ct = default);
 
+    /// <summary>GETs raw bytes (e.g. an image). Throws <see cref="LcuException"/> on a non-2xx response.</summary>
+    Task<byte[]> GetBytesAsync(string path, CancellationToken ct = default);
+
     /// <summary>Sends a request with an optional JSON body. Throws <see cref="LcuException"/> on a non-2xx response.</summary>
     Task SendAsync(HttpMethod method, string path, JsonNode? body, CancellationToken ct = default);
 }

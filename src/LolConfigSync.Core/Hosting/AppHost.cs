@@ -26,6 +26,7 @@ public sealed class AppHost : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private LcuHttpClient? _http;
+    private LeagueGateway? _gateway;
     private LcuEventStream? _stream;
     private Task? _eventLoop;
     private bool _readOnlyChecked;
@@ -93,6 +94,7 @@ public sealed class AppHost : IAsyncDisposable
             }
 
             _http = http;
+            _gateway = gateway;
             _stream = stream;
             FileLog.Info($"Connected to League client on port {lockfile.Port}");
             FixReadOnlySettingsOnce();
@@ -140,8 +142,24 @@ public sealed class AppHost : IAsyncDisposable
         var stream = _stream;
         _stream = null;
         if (stream is not null) await stream.DisposeAsync().ConfigureAwait(false);
+        _gateway = null;
         _http?.Dispose();
         _http = null;
+    }
+
+    /// <summary>The logged-in account's profile icon from the client, or null when not connected or unavailable.</summary>
+    public async Task<byte[]?> GetProfileIconAsync(int iconId)
+    {
+        var gateway = _gateway;
+        if (gateway is null) return null;
+        try
+        {
+            return await gateway.GetProfileIconAsync(iconId, _cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or ObjectDisposedException)
+        {
+            return null;
+        }
     }
 
     private async Task PumpEventsAsync(CancellationToken ct)

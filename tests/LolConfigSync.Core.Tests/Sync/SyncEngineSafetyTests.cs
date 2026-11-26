@@ -48,6 +48,34 @@ public sealed class SyncEngineSafetyTests : IDisposable
         Assert.Equal(["Edited", "Second", "Third"], MainPageNames());
     }
 
+    // Who is logged in
+    [Fact]
+    public async Task Status_names_the_logged_in_account_even_before_a_main_setup_exists()
+    {
+        _h.Engine.FirstRunPrompt = (_, _) => Task.FromResult(false);
+
+        await _h.Engine.OnConnectedAsync(new FakeLeagueGateway(Alt, AltState()), default);
+        await _h.Engine.PendingPrompt;
+
+        Assert.Equal(Alt, _h.Engine.Status.Account);
+    }
+
+    [Fact]
+    public async Task Profile_changes_on_the_same_account_update_the_status_without_resyncing()
+    {
+        _h.SeedMainSetup();
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        await _h.Engine.OnConnectedAsync(gw, default);
+        var calls = gw.Calls.Count;
+
+        await _h.Engine.HandleLcuEventAsync(Event("/lol-summoner/v1/current-summoner",
+            Obj("""{"puuid":"puuid-alt","gameName":"Alt","tagLine":"EUW","summonerId":2,"profileIconId":29,"summonerLevel":101}""")), default);
+
+        Assert.Equal(29, _h.Engine.Status.Account!.ProfileIconId);
+        Assert.Equal(101, _h.Engine.Status.Account.SummonerLevel);
+        Assert.Equal(calls, gw.Calls.Count);
+    }
+
     // Backup before any change
     [Fact]
     public async Task Nothing_is_changed_when_the_backup_cannot_be_saved()

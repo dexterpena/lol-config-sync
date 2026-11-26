@@ -18,6 +18,27 @@ public class LeagueGatewayTests
     }
 
     [Fact]
+    public async Task Current_account_includes_icon_and_level()
+    {
+        _lcu.Responses["/lol-summoner/v1/current-summoner"] =
+            """{"puuid":"p","gameName":"Dex","tagLine":"NA1","summonerId":7,"profileIconId":4568,"summonerLevel":312}""";
+
+        var account = await Gateway.GetCurrentAccountAsync();
+
+        Assert.Equal(4568, account!.ProfileIconId);
+        Assert.Equal(312, account.SummonerLevel);
+    }
+
+    [Fact]
+    public async Task Profile_icon_is_fetched_from_game_data()
+    {
+        _lcu.Binary["/lol-game-data/assets/v1/profile-icons/4568.jpg"] = [1, 2, 3];
+
+        Assert.Equal([1, 2, 3], await Gateway.GetProfileIconAsync(4568));
+        Assert.Null(await Gateway.GetProfileIconAsync(1));
+    }
+
+    [Fact]
     public async Task Not_logged_in_returns_null() =>
         Assert.Null(await Gateway.GetCurrentAccountAsync());
 

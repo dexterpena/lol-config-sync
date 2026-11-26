@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace LolConfigSync.Core.League;
 
 /// <summary>A logged-in League account. <see cref="RiotId"/> is <c>gameName#tagLine</c>.</summary>
-public sealed record Account(string Puuid, string RiotId, long SummonerId);
+public sealed record Account(string Puuid, string RiotId, long SummonerId, int ProfileIconId = 0, int SummonerLevel = 0);
 
 /// <summary>Typed access to the League client endpoints the app syncs.</summary>
 public interface ILeagueGateway
@@ -11,6 +11,9 @@ public interface ILeagueGateway
     /// <summary>The logged-in account, or null when nobody is logged in.</summary>
     Task<Account?> GetCurrentAccountAsync(CancellationToken ct = default);
     Task<string> GetGameflowPhaseAsync(CancellationToken ct = default);
+
+    /// <summary>The profile icon image (JPEG), or null when the client doesn't have it.</summary>
+    Task<byte[]?> GetProfileIconAsync(int iconId, CancellationToken ct = default);
 
     /// <summary>Whether League has finished loading the account's game settings from Riot's servers.</summary>
     Task<bool> IsGameSettingsReadyAsync(CancellationToken ct = default);
