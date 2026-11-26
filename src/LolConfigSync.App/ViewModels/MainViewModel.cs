@@ -59,7 +59,7 @@ public sealed class MainViewModel : ObservableObject
         ];
         ExtraSections =
         [
-            Toggle(SyncSection.RunePages, "Rune pages", "Your own pages, replaced on each account"),
+            Toggle(SyncSection.RunePages, "Rune pages", "Your own pages. One slot always stays free for Porofessor"),
             Toggle(SyncSection.ItemSets, "Item sets", "Custom item sets"),
             Toggle(SyncSection.ClientSettings, "Client settings", "Champ select, party and notification preferences"),
             Toggle(SyncSection.Video, "Graphics", "Resolution, window mode and quality on this PC"),

@@ -12,6 +12,8 @@ It only talks to the League client's local API (`127.0.0.1`) and the files in `L
 4. **Pick what syncs:** the main window has a toggle for each group. In **Edit setup** you can change any value or uncheck **Sync** on a single setting so it stays different per account.
 5. **Backups:** each account is backed up right before the app changes it. Its original settings (from before the first sync) are kept forever, plus the 10 most recent backups. Restore one from **Backups** while logged into that account. The previous main setup is also kept as `main-setup.prev.json`.
 
+**Rune pages and Porofessor:** one rune page slot on every account is always left empty so Porofessor can create its page in champ select. Pages whose names start with `Porofessor` or `Poro` are never synced. If one is sitting in the free slot when a sync needs to rewrite your pages, it's cleared, and Porofessor makes a new one next champ select. Both are adjustable in `settings.json` (`ReservedRunePageSlots`, `ToolRunePagePrefixes`), for example if Porofessor names its pages differently.
+
 Graphics (resolution, window mode, quality) aren't stored per account by Riot. They live in this PC's `game.cfg`, so the Graphics toggle just keeps them pinned to your main setup.
 
 If you'd previously made `PersistedSettings.json` read-only to stop League overwriting it, the app turns that off (keeping a copy) so League can save your settings again.
@@ -21,7 +23,7 @@ If you'd previously made `PersistedSettings.json` read-only to stop League overw
 Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`).
 
 ```powershell
-dotnet test                                   # 138 unit tests (Core)
+dotnet test                                   # 147 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
 dotnet publish src/LolConfigSync.App -c Release
 ```

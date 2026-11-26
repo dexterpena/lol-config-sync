@@ -300,6 +300,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             return;
         }
         if (previous is not null) KeepPreviousForFailedParts(snapshot, previous, failed);
+        snapshot.RunePages = RunePagePlanner.WithoutToolPages(snapshot.RunePages, store.LoadSettings().ToolRunePagePrefixes);
 
         ct.ThrowIfCancellationRequested();
         store.SaveMainSetup(snapshot);
@@ -384,13 +385,17 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         int? shortfallCapacity = null;
         if (settings.IsEnabled(SyncSection.RunePages) && !Skipped(Part.Runes, "Rune pages"))
         {
-            if (source.RunePages.Count == 0 || SamePages(backup.RunePages, source.RunePages))
+            // Tool pages (Porofessor) are never synced; a matching account with one in its free slot is left alone.
+            var sourcePages = RunePagePlanner.WithoutToolPages(source.RunePages, settings.ToolRunePagePrefixes);
+            var accountPages = RunePagePlanner.WithoutToolPages(backup.RunePages, settings.ToolRunePagePrefixes);
+            if (sourcePages.Count == 0 || SamePages(accountPages, sourcePages))
             {
                 pushed.Add(SyncSection.RunePages);
             }
             else if (await TryAsync("Rune pages", warnings, async () =>
                      {
-                         shortfallCapacity = await PushRunePagesAsync(gateway, source.RunePages, warnings, ct).ConfigureAwait(false);
+                         shortfallCapacity = await PushRunePagesAsync(gateway, sourcePages, settings.ReservedRunePageSlots, warnings, ct)
+                             .ConfigureAwait(false);
                      }).ConfigureAwait(false))
             {
                 pushed.Add(SyncSection.RunePages);
@@ -458,17 +463,22 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
     }
 
-    /// <summary>Replaces the account's pages. Returns the account's capacity when not all pages fit.</summary>
-    private static async Task<int?> PushRunePagesAsync(ILeagueGateway gateway, JsonArray mainPages, List<string> warnings, CancellationToken ct)
+    /// <summary>
+    /// Replaces the account's pages, leaving <paramref name="reservedSlots"/> empty (any tool page is cleared to free
+    /// its slot; the tool recreates it in champ select). Returns the usable slot count when not all pages fit.
+    /// </summary>
+    private static async Task<int?> PushRunePagesAsync(ILeagueGateway gateway, JsonArray mainPages, int reservedSlots,
+        List<string> warnings, CancellationToken ct)
     {
         var target = await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false);
         var capacity = await gateway.GetRunePageCapacityAsync(ct).ConfigureAwait(false);
-        var plan = RunePagePlanner.Plan(mainPages, target, capacity);
+        var plan = RunePagePlanner.Plan(mainPages, target, capacity, reservedSlots);
         foreach (var id in plan.DeleteIds) await gateway.DeleteRunePageAsync(id, ct).ConfigureAwait(false);
         foreach (var page in plan.Create) await gateway.CreateRunePageAsync(page, ct).ConfigureAwait(false);
         if (plan.Skipped.Count == 0) return null;
-        warnings.Add($"Rune pages: no room on this account for {string.Join(", ", plan.Skipped)}");
-        return capacity;
+        var reason = reservedSlots > 0 ? $" ({reservedSlots} slot{(reservedSlots == 1 ? " is" : "s are")} kept free for Porofessor)" : "";
+        warnings.Add($"Rune pages: no room on this account for {string.Join(", ", plan.Skipped)}{reason}");
+        return plan.UsableSlots;
     }
 
     private void MarkPushed(Account account, IEnumerable<SyncSection> sections, int? runeShortfallCapacity)
@@ -567,7 +577,8 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             {
                 await TryAsync("Saving rune pages", warnings, async () =>
                 {
-                    var pages = await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false);
+                    var pages = RunePagePlanner.WithoutToolPages(
+                        await gateway.GetEditableRunePagesAsync(ct).ConfigureAwait(false), store.LoadSettings().ToolRunePagePrefixes);
                     var merged = MergeCapturedPages(pages, main.RunePages);
                     if (!SamePages(merged, main.RunePages)) { main.RunePages = merged; changed = true; }
                 }).ConfigureAwait(false);

@@ -45,6 +45,26 @@ public class RunePagePlannerTests
     }
 
     [Fact]
+    public void Reserved_slots_are_left_free()
+    {
+        JsonArray main = [Page(1, "Page1"), Page(2, "Page2"), Page(3, "Page3")];
+
+        var plan = RunePagePlanner.Plan(main, [], capacity: 3, reservedSlots: 1);
+
+        Assert.Equal(["Page1", "Page2"], plan.Create.Select(p => p["name"]!.GetValue<string>()));
+        Assert.Equal(["Page3"], plan.Skipped);
+        Assert.Equal(2, plan.UsableSlots);
+    }
+
+    [Theory]
+    [InlineData("Porofessor - Ahri Mid", true)]
+    [InlineData("poro: Jinx", true)]
+    [InlineData("Ahri Poro build", false)]
+    [InlineData("My Page", false)]
+    public void Tool_pages_are_recognised_by_prefix(string name, bool expected) =>
+        Assert.Equal(expected, RunePagePlanner.IsToolPage(Page(1, name), ["Porofessor", "Poro"]));
+
+    [Fact]
     public void Zero_capacity_skips_everything() =>
         Assert.Equal(["Page1"], RunePagePlanner.Plan([Page(1, "Page1")], [], capacity: 0).Skipped);
 }

@@ -36,7 +36,7 @@ public sealed class SyncEngineSafetyTests : IDisposable
     {
         _h.SeedMainSetup(s => s.RunePages = [Page(1, "MainPage"), Page(2, "Second"), Page(3, "Third")]);
         var state = AltState();
-        state.Capacity = 1;
+        state.Capacity = 2; // one slot is kept free for Porofessor, so one page fits
         var gw = new FakeLeagueGateway(Alt, state);
         await _h.Engine.OnConnectedAsync(gw, default);
         _h.Time.Advance(TimeSpan.FromSeconds(6));
@@ -46,6 +46,62 @@ public sealed class SyncEngineSafetyTests : IDisposable
         await FlushAsync();
 
         Assert.Equal(["Edited", "Second", "Third"], MainPageNames());
+    }
+
+    // Porofessor
+    [Fact]
+    public async Task Push_always_leaves_one_rune_slot_free()
+    {
+        _h.SeedMainSetup(s => s.RunePages = [Page(1, "First"), Page(2, "Second")]);
+        var state = AltState();
+        state.Capacity = 2;
+        var gw = new FakeLeagueGateway(Alt, state);
+
+        await _h.Engine.OnConnectedAsync(gw, default);
+
+        Assert.Equal(["First"], gw.State.Pages.Select(p => p!["name"]!.GetValue<string>()));
+        Assert.Contains(_h.Engine.Status.Warnings, w => w.Contains("Second") && w.Contains("Porofessor"));
+    }
+
+    [Fact]
+    public async Task Porofessor_page_is_never_captured_into_main()
+    {
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        _h.SeedMainSetup();
+        await _h.Engine.OnConnectedAsync(gw, default);
+        _h.Time.Advance(TimeSpan.FromSeconds(6));
+
+        gw.State.Pages.Add(Page(77, "Porofessor - Ahri Mid"));
+        await _h.Engine.HandleLcuEventAsync(Event(PagesUri, new JsonArray()), default);
+        await FlushAsync();
+
+        Assert.Equal(["MainPage"], MainPageNames());
+    }
+
+    [Fact]
+    public async Task Porofessor_page_in_the_free_slot_is_left_alone_when_pages_match()
+    {
+        _h.SeedMainSetup();
+        var state = MainState();
+        state.Pages.Add(Page(77, "Porofessor - Ahri Mid"));
+        var gw = new FakeLeagueGateway(Main, state);
+
+        await _h.Engine.OnConnectedAsync(gw, default);
+
+        Assert.DoesNotContain(gw.Calls, c => c.Contains("rune"));
+    }
+
+    [Fact]
+    public async Task Adopt_leaves_out_porofessor_pages()
+    {
+        var state = MainState();
+        state.Pages.Add(Page(77, "Porofessor - Ahri Mid"));
+        _h.Engine.FirstRunPrompt = (_, _) => Task.FromResult(true);
+
+        await _h.Engine.OnConnectedAsync(new FakeLeagueGateway(Main, state), default);
+        await _h.Engine.PendingPrompt;
+
+        Assert.Equal(["MainPage"], MainPageNames());
     }
 
     // Important 3
