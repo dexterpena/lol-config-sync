@@ -34,6 +34,7 @@ public partial class App : Application, IAppShell
             return;
         }
 
+        if (Environment.ProcessPath is { } runningExe) LolConfigSync.Core.Updates.Updater.CleanupAfterUpdate(runningExe);
         _store = new AppDataStore(AppDataStore.DefaultRoot);
         FileLog.Init(Path.Combine(_store.RootDir, "log.txt"));
         DispatcherUnhandledException += (_, args) =>
@@ -71,6 +72,7 @@ public partial class App : Application, IAppShell
 
         if (!e.Args.Contains("--tray")) ShowMainWindow();
         await _host.StartAsync();
+        if (!AppDataStore.IsSandboxed) await _vm.CheckOnStartupAsync();
     }
 
     private string? ResolveInstallDir()
@@ -139,7 +141,7 @@ public partial class App : Application, IAppShell
         return item;
     }
 
-    private void Notify(string message)
+    public void Notify(string message)
     {
         if (_tray is null || !_store.LoadSettings().ShowNotifications) return;
         _tray.ShowNotification("LoL Config Sync", message);
@@ -171,6 +173,10 @@ public partial class App : Application, IAppShell
 
     public bool Confirm(string title, string message, string primary, string secondary) =>
         HexDialog.Show(_window, title, message, primary, secondary);
+
+    public void ShowMessage(string title, string message) => HexDialog.Show(_window, title, message);
+
+    public void ExitForUpdate() => Quit();
 
     public void ShowError(Exception e)
     {

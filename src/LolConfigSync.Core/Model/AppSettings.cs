@@ -12,6 +12,10 @@ public sealed class AppSettings
     public bool ShowNotifications { get; set; } = true;
     public string? InstallDirOverride { get; set; }
 
+    /// <summary>Check GitHub for a new version once a day.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+    public DateTimeOffset? LastUpdateCheck { get; set; }
+
     /// <summary>Rune page slots always left empty so a rune tool (Porofessor) can create its page in champ select.</summary>
     public int ReservedRunePageSlots { get; set; } = 1;
 

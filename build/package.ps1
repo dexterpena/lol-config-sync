@@ -7,7 +7,11 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File build\package.ps1
 #>
-param([switch]$SkipTests)
+param(
+  [switch]$SkipTests,
+  # Overrides <Version> from the csproj (the release workflow passes the tag, e.g. 1.2.0).
+  [string]$Version
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -19,8 +23,9 @@ $dotnet = (Get-Command dotnet -ErrorAction SilentlyContinue).Source
 if (-not $dotnet) { $dotnet = 'C:\Program Files\dotnet\dotnet.exe' }
 
 [xml]$csproj = Get-Content $project
-$version = ($csproj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version
+$version = if ($Version) { $Version.TrimStart('v') } else { ($csproj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version }
 if (-not $version) { throw "No <Version> in $project" }
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.3 (got '$version')" }
 Write-Host "Packaging LoL Config Sync $version"
 
 if (-not $SkipTests) {
@@ -29,7 +34,7 @@ if (-not $SkipTests) {
 }
 
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
-& $dotnet publish $project -c Release -o $stage --nologo
+& $dotnet publish $project -c Release -o $stage --nologo "-p:Version=$version"
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
 $exe = Join-Path $stage 'LolConfigSync.exe'
 if (-not (Test-Path $exe)) { throw "Publish did not produce $exe" }
@@ -38,6 +43,8 @@ if (-not (Test-Path $exe)) { throw "Publish did not produce $exe" }
 $portableRoot = Join-Path $dist 'portable\LoL Config Sync'
 New-Item -ItemType Directory -Force $portableRoot | Out-Null
 Copy-Item $exe $portableRoot
+Copy-Item (Join-Path $root 'LICENSE') (Join-Path $portableRoot 'LICENSE.txt')
+Copy-Item (Join-Path $root 'THIRD-PARTY-NOTICES.md') $portableRoot
 @"
 LoL Config Sync $version (portable)
 
@@ -46,6 +53,14 @@ folder next to it, so you can move or copy this whole folder and they come along
 
 To remove it: quit from the tray icon, untick "Start with Windows" first if you
 turned it on, then delete this folder.
+
+Open source under the MIT License (LICENSE.txt). Source, updates and help:
+https://github.com/dexterpena/lol-config-manager
+
+LoL Config Sync isn't endorsed by Riot Games and doesn't reflect the views or
+opinions of Riot Games or anyone officially involved in producing or managing
+Riot Games properties. Riot Games, and all associated properties are trademarks
+or registered trademarks of Riot Games, Inc.
 "@ | Set-Content (Join-Path $portableRoot 'README.txt') -Encoding utf8
 $zip = Join-Path $dist "LolConfigSync-$version-portable.zip"
 Compress-Archive -Path $portableRoot -DestinationPath $zip -CompressionLevel Optimal

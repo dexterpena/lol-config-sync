@@ -17,6 +17,9 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppName}
+AppPublisherURL=https://github.com/dexterpena/lol-config-manager
+AppSupportURL=https://github.com/dexterpena/lol-config-manager/issues
+AppUpdatesURL=https://github.com/dexterpena/lol-config-manager/releases
 ; Per-user install by default: no admin prompt, and the folder is writable so the app's
 ; data folder can live next to it. The user can still pick an all-users install.
 DefaultDirName={autopf}\{#AppName}
@@ -46,6 +49,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "{#PublishDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -57,8 +62,15 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Start {#AppName}"; Flags: nowait postinstall skipifsilent
+; The in-app updater runs setup silently with /RELAUNCH=1 and expects the app to come back afterwards.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: ShouldRelaunch
 
 [Code]
+function ShouldRelaunch: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;
+
 // Keep the user's saved setup and backups unless they say otherwise.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -11,6 +12,7 @@ using LolConfigSync.Core.Model;
 using LolConfigSync.Core.Presentation;
 using LolConfigSync.Core.Storage;
 using LolConfigSync.Core.Sync;
+using LolConfigSync.Core.Updates;
 
 namespace LolConfigSync.App.ViewModels;
 
@@ -84,6 +86,15 @@ public sealed class MainViewModel : ObservableObject
         EditCommand = new RelayCommand(() => { shell.ShowEditor(); ReloadSettings(); }, () => HasMainSetup);
         BackupsCommand = new RelayCommand(shell.ShowBackups);
         OpenDataFolderCommand = new RelayCommand(() => shell.OpenFolder(_store.RootDir));
+        _shell = shell;
+        CheckForUpdatesCommand = new RelayCommand(() => CheckForUpdatesAsync(userAsked: true), () => !IsUpdating, onError);
+        AboutCommand = new RelayCommand(() => shell.ShowMessage("About LoL Config Sync",
+            $"Version {CurrentVersion.ToString(3)}. Free and open source under the MIT License.\n" +
+            $"Source, releases and issues: github.com/{UpdateSource.Owner}/{UpdateSource.Repo}\n\n" +
+            "LoL Config Sync isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone " +
+            "officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties " +
+            "are trademarks or registered trademarks of Riot Games, Inc."));
+        UpdateNowCommand = new RelayCommand(UpdateNowAsync, () => AvailableUpdate is not null && !IsUpdating, onError);
 
         _host.Engine.StatusChanged += _ => _dispatcher.BeginInvoke(Refresh);
         _clock = new DispatcherTimer(TimeSpan.FromSeconds(30), DispatcherPriority.Background, (_, _) => Refresh(), dispatcher);
@@ -103,6 +114,109 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>Where the main setup, settings and backups are stored.</summary>
     public string DataFolder => _store.RootDir;
+
+    // ---- updates ----
+    private readonly IAppShell _shell;
+    private static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromMinutes(5) };
+    private ReleaseInfo? _availableUpdate;
+    private bool _isUpdating;
+    private string _updateProgress = "";
+
+    public ICommand CheckForUpdatesCommand { get; }
+    public ICommand AboutCommand { get; }
+    public ICommand UpdateNowCommand { get; }
+
+    public static Version CurrentVersion { get; } =
+        System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0);
+
+    public string VersionText => $"Version {CurrentVersion.ToString(3)}";
+
+    public ReleaseInfo? AvailableUpdate
+    {
+        get => _availableUpdate;
+        private set
+        {
+            if (!Set(ref _availableUpdate, value)) return;
+            Raise(nameof(HasUpdate));
+            Raise(nameof(UpdateHeadline));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool HasUpdate => _availableUpdate is not null;
+    public string UpdateHeadline => _availableUpdate is null ? "" : $"Version {_availableUpdate.Version.ToString(3)} is available";
+
+    public bool IsUpdating
+    {
+        get => _isUpdating;
+        private set => Set(ref _isUpdating, value);
+    }
+
+    public string UpdateProgress
+    {
+        get => _updateProgress;
+        private set => Set(ref _updateProgress, value);
+    }
+
+    /// <summary>Automatic check: at most once a day, quietly; shows the banner (and a toast) when there's something new.</summary>
+    public async Task CheckOnStartupAsync()
+    {
+        var settings = _store.LoadSettings();
+        if (!settings.CheckForUpdates || !UpdateChecker.IsCheckDue(settings.LastUpdateCheck, DateTimeOffset.UtcNow)) return;
+        try
+        {
+            await CheckForUpdatesAsync(userAsked: false);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            FileLog.Error("Automatic update check failed", e);
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(bool userAsked)
+    {
+        var release = await new UpdateChecker(UpdateHttp, UpdateSource.Owner, UpdateSource.Repo).GetLatestAsync(CancellationToken.None);
+        var settings = _store.LoadSettings();
+        settings.LastUpdateCheck = DateTimeOffset.UtcNow;
+        _store.SaveSettings(settings);
+
+        if (release is not null && UpdateChecker.IsNewer(CurrentVersion, release.Version))
+        {
+            AvailableUpdate = release;
+            if (userAsked) await UpdateNowAsync();
+            else _shell.Notify($"{UpdateHeadline}. Open LoL Config Sync to update.");
+        }
+        else if (userAsked)
+        {
+            _shell.ShowMessage("You're up to date", $"LoL Config Sync {CurrentVersion.ToString(3)} is the latest version.");
+        }
+    }
+
+    private async Task UpdateNowAsync()
+    {
+        var release = AvailableUpdate;
+        if (release is null) return;
+        var notes = string.IsNullOrWhiteSpace(release.Notes) ? "" : $"\n\nWhat's new:\n{release.Notes.Trim()}";
+        if (!_shell.Confirm($"Update to version {release.Version.ToString(3)}?",
+                $"The app downloads the update, restarts, and keeps your setup, settings and backups.{notes}",
+                "Update now", "Later"))
+        {
+            return;
+        }
+
+        IsUpdating = true;
+        try
+        {
+            var exe = Environment.ProcessPath ?? throw new InvalidOperationException("Can't find the running program to update.");
+            var progress = new Progress<string>(text => UpdateProgress = text);
+            if (await new Updater(UpdateHttp).UpdateAsync(release, exe, progress, CancellationToken.None)) _shell.ExitForUpdate();
+        }
+        finally
+        {
+            IsUpdating = false;
+            UpdateProgress = "";
+        }
+    }
 
     // ---- who's logged in ----
     private ImageSource? _accountIcon;
@@ -233,4 +347,9 @@ public interface IAppShell
     void ShowEditor();
     void ShowBackups();
     void OpenFolder(string path);
+    void ShowMessage(string title, string message);
+    void Notify(string message);
+
+    /// <summary>Quit right away so the update can replace the program.</summary>
+    void ExitForUpdate();
 }
