@@ -1,6 +1,6 @@
 # Security
 
-If you find a security problem, such as a way for the updater to install something it shouldn't, or a way for another program to abuse the app's access to the League client, please **don't open a public issue**. Report it privately through GitHub's [private vulnerability reporting](https://github.com/dexterpena/lol-config-manager/security/advisories/new) instead.
+If you find a security problem, such as a way for the updater to install something it shouldn't, or a way for another program to abuse the app's access to the League client, please **don't open a public issue**. Report it privately through GitHub's [private vulnerability reporting](https://github.com/dexterpena/lol-config-sync/security/advisories/new) instead.
 
 How the app limits risk:
 

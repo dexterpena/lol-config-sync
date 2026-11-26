@@ -17,9 +17,9 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppName}
-AppPublisherURL=https://github.com/dexterpena/lol-config-manager
-AppSupportURL=https://github.com/dexterpena/lol-config-manager/issues
-AppUpdatesURL=https://github.com/dexterpena/lol-config-manager/releases
+AppPublisherURL=https://github.com/dexterpena/lol-config-sync
+AppSupportURL=https://github.com/dexterpena/lol-config-sync/issues
+AppUpdatesURL=https://github.com/dexterpena/lol-config-sync/releases
 ; Per-user install by default: no admin prompt, and the folder is writable so the app's
 ; data folder can live next to it. The user can still pick an all-users install.
 DefaultDirName={autopf}\{#AppName}

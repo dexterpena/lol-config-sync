@@ -55,7 +55,7 @@ To remove it: quit from the tray icon, untick "Start with Windows" first if you
 turned it on, then delete this folder.
 
 Open source under the MIT License (LICENSE.txt). Source, updates and help:
-https://github.com/dexterpena/lol-config-manager
+https://github.com/dexterpena/lol-config-sync
 
 LoL Config Sync isn't endorsed by Riot Games and doesn't reflect the views or
 opinions of Riot Games or anyone officially involved in producing or managing

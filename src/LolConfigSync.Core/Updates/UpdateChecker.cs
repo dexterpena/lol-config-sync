@@ -19,7 +19,7 @@ public sealed record ReleaseInfo(
 public static class UpdateSource
 {
     public const string Owner = "dexterpena";
-    public const string Repo = "lol-config-manager";
+    public const string Repo = "lol-config-sync";
     public static string ReleasesPage => $"https://github.com/{Owner}/{Repo}/releases";
 }
 

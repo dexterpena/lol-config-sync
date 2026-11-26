@@ -2,8 +2,8 @@
 
 **Every League of Legends account, same settings.** If you switch accounts a lot, LoL Config Sync keeps your hotkeys, interface, camera, sound, rune pages and more identical on all of them, automatically.
 
-[![CI](https://github.com/dexterpena/lol-config-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/dexterpena/lol-config-manager/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/dexterpena/lol-config-manager)](https://github.com/dexterpena/lol-config-manager/releases/latest)
+[![CI](https://github.com/dexterpena/lol-config-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/dexterpena/lol-config-sync/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/dexterpena/lol-config-sync)](https://github.com/dexterpena/lol-config-sync/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![Main window](docs/images/main-window.png)
@@ -29,7 +29,7 @@ LoL Config Sync works with the client instead of against it. It keeps one **main
 
 ## Download
 
-Get the latest version from **[Releases](https://github.com/dexterpena/lol-config-manager/releases/latest)**. Neither download needs .NET installed.
+Get the latest version from **[Releases](https://github.com/dexterpena/lol-config-sync/releases/latest)**. Neither download needs .NET installed.
 
 | Download | What it does |
 |----------|--------------|

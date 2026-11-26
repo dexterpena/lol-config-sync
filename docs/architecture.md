@@ -85,7 +85,7 @@ All writes go to a temporary file first and are then renamed into place, so a cr
 
 ## Updates
 
-`UpdateChecker` reads `https://api.github.com/repos/dexterpena/lol-config-manager/releases/latest`. `Updater` downloads the right file for the copy that's running and checks it against the SHA-256 digest GitHub publishes. Installed copies (with `unins000.exe` next to them) get the installer. Portable copies get the zip.
+`UpdateChecker` reads `https://api.github.com/repos/dexterpena/lol-config-sync/releases/latest`. `Updater` downloads the right file for the copy that's running and checks it against the SHA-256 digest GitHub publishes. Installed copies (with `unins000.exe` next to them) get the installer. Portable copies get the zip.
 
 - **Installed:** the installer runs silently with `/RELAUNCH=1` once the app has exited, and the installer's `[Run]` section starts the new version.
 - **Portable:** the running `.exe` is renamed to `.old`, the new one is put in its place, and the app restarts. The `.old` file is deleted on the next start.

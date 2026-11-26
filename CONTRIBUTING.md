@@ -15,8 +15,8 @@ Open an issue with:
 You need Windows 10 or 11 and the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`winget install Microsoft.DotNet.SDK.10`).
 
 ```powershell
-git clone https://github.com/dexterpena/lol-config-manager
-cd lol-config-manager
+git clone https://github.com/dexterpena/lol-config-sync
+cd lol-config-sync
 dotnet test                                  # run the unit tests
 dotnet run --project src/LolConfigSync.App   # run the app
 ```
