@@ -97,8 +97,14 @@ public static class SettingLabels
         ["EnableFXAA"] = "Anti-Aliasing",
     };
 
+    private static readonly Dictionary<string, int> Order =
+        Known.Keys.Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.Ordinal);
+
     public static string For(SettingKey key) =>
         Known.TryGetValue(key.Name, out var label) ? label : SplitWords(key.Name);
+
+    /// <summary>Display order: known settings in their natural order (Q, W, E, R…), then everything else.</summary>
+    public static int Rank(SettingKey key) => Order.TryGetValue(key.Name, out var rank) ? rank : int.MaxValue;
 
     private static string SplitWords(string name)
     {

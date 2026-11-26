@@ -92,7 +92,31 @@ public class SettingRowsTests
         row.Value = "x";
         row.Sync = false;
 
-        Assert.Equal(["Value", "Sync"], changed);
+        Assert.Equal(["Value", "IsModified", "Sync"], changed);
+    }
+
+    [Fact]
+    public void Known_settings_keep_natural_order_before_unknown_ones()
+    {
+        var setup = new SetupSnapshot
+        {
+            InputSettings = JsonNode.Parse("""
+                {"GameEvents":{"evtZzzCustom":"[z]","evtCastSpell3":"[e]","evtCastSpell1":"[q]","evtCastSpell4":"[r]","evtCastSpell2":"[w]"}}
+                """)!.AsObject(),
+        };
+
+        var labels = SettingRows.Build(setup, new AppSettings()).Select(r => r.Label);
+
+        Assert.Equal(["Ability Q", "Ability W", "Ability E", "Ability R", "Zzz Custom"], labels);
+    }
+
+    [Fact]
+    public void Build_marks_boolean_rows()
+    {
+        var rows = SettingRows.Build(Setup(), new AppSettings());
+
+        Assert.True(rows.Single(r => r.Key.Name == "FlipMiniMap").IsBoolean);
+        Assert.False(rows.Single(r => r.Key.Name == "GlobalScale").IsBoolean);
     }
 
     [Theory]

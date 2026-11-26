@@ -22,13 +22,15 @@ public static class SettingRows
                 foreach (var (name, value) in values)
                 {
                     var key = new SettingKey(kind, section, name);
+                    var isBoolean = value?.GetValueKind() is JsonValueKind.True or JsonValueKind.False;
                     rows.Add(new SettingRow(key, SectionMap.SectionFor(kind, section), SettingLabels.For(key),
-                        Display(value), !settings.IsExcluded(key)));
+                        Display(value), !settings.IsExcluded(key), isBoolean));
                 }
             }
         }
         return rows
             .OrderBy(r => r.Section)
+            .ThenBy(r => SettingLabels.Rank(r.Key))
             .ThenBy(r => r.Label, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }

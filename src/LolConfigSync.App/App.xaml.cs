@@ -178,7 +178,34 @@ public partial class App : Application, IAppShell
         HexDialog.Show(_window, "That didn't work", message);
     }
 
-    public void ShowEditor() => HexDialog.Show(_window, "Editor", "The editor arrives in the next build step.");
+    public void ShowEditor()
+    {
+        var main = _store.LoadMainSetup();
+        if (main is null || _host is null) return;
+        var editor = new EditorWindow(close => new EditorViewModel(main, _store.LoadSettings(), _host.Engine, close, ShowError));
+        ShowChild(editor);
+    }
 
-    public void ShowBackups() => HexDialog.Show(_window, "Backups", "Backups arrive in the next build step.");
+    public void ShowBackups()
+    {
+        if (_host is null) return;
+        var backups = new BackupsWindow(close => new BackupsViewModel(_store, _host.Engine,
+            (title, message) => HexDialog.Show(Windows.OfType<BackupsWindow>().FirstOrDefault(), title, message, "Restore", "Cancel"),
+            ShowError, close));
+        ShowChild(backups);
+    }
+
+    private void ShowChild(Window child)
+    {
+        if (_window is { IsVisible: true })
+        {
+            child.Owner = _window;
+        }
+        else
+        {
+            child.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+        child.ShowDialog();
+        _vm?.Refresh();
+    }
 }

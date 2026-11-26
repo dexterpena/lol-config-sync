@@ -1,0 +1,59 @@
+<controls:HexWindow x:Class="LolConfigSync.App.BackupsWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:LolConfigSync.App.Controls"
+                    xmlns:vm="clr-namespace:LolConfigSync.App.ViewModels"
+                    Title="Backups" Width="520" Height="560" MinWidth="440" MinHeight="380"
+                    WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
+    <Window.InputBindings>
+        <KeyBinding Key="Escape" Command="{Binding CloseCommand}" />
+    </Window.InputBindings>
+
+    <DockPanel Margin="28,10,28,22">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+            <TextBlock Text="Backups" Style="{StaticResource TitleText}" />
+            <TextBlock Style="{StaticResource MutedText}" Margin="0,4,0,0"
+                       Text="Each account is backed up right before the app changes it. The 10 most recent backups per account are kept." />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+            <TextBlock Text="{Binding Message}" Style="{StaticResource BodyText}" Foreground="{StaticResource TealBrush}" Margin="0,0,0,10"
+                       Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}" />
+            <DockPanel LastChildFill="False">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding Hint}" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                           MaxWidth="250" />
+                <Button DockPanel.Dock="Right" Style="{StaticResource HexPrimaryButton}" Content="_Restore" Command="{Binding RestoreCommand}" MinWidth="110" />
+                <Button DockPanel.Dock="Right" Style="{StaticResource HexButton}" Content="Close" Command="{Binding CloseCommand}" Margin="0,0,10,0" />
+            </DockPanel>
+        </StackPanel>
+
+        <Grid>
+            <ListBox Style="{StaticResource HexListBox}" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
+                     AutomationProperties.Name="Backups">
+                <ListBox.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.HeaderTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource HeadingText}" FontSize="15" Margin="0,10,0,8" />
+                            </DataTemplate>
+                        </GroupStyle.HeaderTemplate>
+                    </GroupStyle>
+                </ListBox.GroupStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:BackupItem}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Ago}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding When}" Style="{StaticResource BodyText}" />
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Style="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" MaxWidth="320"
+                       Text="No backups yet. An account is backed up automatically the first time your setup syncs to it."
+                       Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </DockPanel>
+</controls:HexWindow>
