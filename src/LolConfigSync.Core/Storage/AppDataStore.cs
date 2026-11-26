@@ -19,8 +19,15 @@ public sealed class AppDataStore(string rootDir)
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static string DefaultRoot { get; } =
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolConfigSync");
+    /// <summary>Environment variable that redirects all app data (used for isolated testing or portable setups).</summary>
+    public const string DataDirVariable = "LOLCONFIGSYNC_DATA_DIR";
+
+    public static string DefaultRoot => ResolveRoot(Environment.GetEnvironmentVariable(DataDirVariable));
+
+    public static string ResolveRoot(string? overrideDir) =>
+        string.IsNullOrWhiteSpace(overrideDir)
+            ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolConfigSync")
+            : overrideDir;
 
     public string RootDir { get; } = rootDir;
     private string MainSetupPath => System.IO.Path.Combine(RootDir, "main-setup.json");

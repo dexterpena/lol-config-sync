@@ -1,12 +1,135 @@
-﻿<Window x:Class="LolConfigSync.App.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:LolConfigSync.App"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+﻿<controls:HexWindow x:Class="LolConfigSync.App.MainWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:LolConfigSync.App.Controls"
+                    xmlns:vm="clr-namespace:LolConfigSync.App.ViewModels"
+                    xmlns:p="clr-namespace:LolConfigSync.Core.Presentation;assembly=LolConfigSync.Core"
+                    Title="LoL Config Sync" Width="660" SizeToContent="Height" ResizeMode="CanMinimize"
+                    WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
-    </Grid>
-</Window>
+        <!-- One toggle row: title + description on the left, switch on the right -->
+        <DataTemplate x:Key="SectionToggleTemplate" DataType="{x:Type vm:SectionToggleViewModel}">
+            <CheckBox Style="{StaticResource HexToggle}" IsChecked="{Binding IsEnabled}" Margin="0,0,24,16"
+                      AutomationProperties.Name="{Binding Title}" ToolTip="{Binding Description}">
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Description}" Style="{StaticResource MutedText}" Margin="0,2,0,0" />
+                </StackPanel>
+            </CheckBox>
+        </DataTemplate>
+
+        <Storyboard x:Key="PulseStoryboard" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="PulseRing" Storyboard.TargetProperty="Opacity" From="0.9" To="0" Duration="0:0:1.4" />
+            <DoubleAnimation Storyboard.TargetName="PulseScale" Storyboard.TargetProperty="ScaleX" From="1" To="1.6" Duration="0:0:1.4" />
+            <DoubleAnimation Storyboard.TargetName="PulseScale" Storyboard.TargetProperty="ScaleY" From="1" To="1.6" Duration="0:0:1.4" />
+        </Storyboard>
+    </Window.Resources>
+
+    <StackPanel Margin="28,14,28,24">
+
+        <!-- ===== Status: the hextech emblem plus what's happening ===== -->
+        <Grid Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Width="78" Height="78" VerticalAlignment="Top" Margin="0,4,22,0">
+                <!-- Pulse ring, only while syncing -->
+                <Rectangle x:Name="PulseRing" Width="46" Height="46" Stroke="{StaticResource TealBrush}" StrokeThickness="2"
+                           Opacity="0" RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="PulseScale" />
+                            <RotateTransform Angle="45" />
+                        </TransformGroup>
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+                <!-- Gold outer frame -->
+                <Rectangle Width="50" Height="50" Stroke="{StaticResource GoldFrameBrush}" StrokeThickness="3"
+                           Fill="{StaticResource PanelBrush}" RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <RotateTransform Angle="45" />
+                    </Rectangle.RenderTransform>
+                </Rectangle>
+                <!-- Core: color carries the state -->
+                <Rectangle x:Name="Core" Width="20" Height="20" RenderTransformOrigin="0.5,0.5" Fill="{StaticResource TextDisabledBrush}">
+                    <Rectangle.RenderTransform>
+                        <RotateTransform Angle="45" />
+                    </Rectangle.RenderTransform>
+                    <Rectangle.Style>
+                        <Style TargetType="Rectangle">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tone}" Value="{x:Static p:StatusTone.Synced}">
+                                    <Setter Property="Fill" Value="{StaticResource TealBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone}" Value="{x:Static p:StatusTone.Syncing}">
+                                    <Setter Property="Fill" Value="{StaticResource TealMidBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone}" Value="{x:Static p:StatusTone.Waiting}">
+                                    <Setter Property="Fill" Value="{StaticResource GoldBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tone}" Value="{x:Static p:StatusTone.Warning}">
+                                    <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Rectangle.Style>
+                </Rectangle>
+            </Grid>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Headline}" Style="{StaticResource TitleText}" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Text="{Binding Detail}" Style="{StaticResource BodyText}" Foreground="{StaticResource TextSoftBrush}" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding MainSetupInfo}" Style="{StaticResource MutedText}" Margin="0,6,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                    <Button Style="{StaticResource HexPrimaryButton}" Content="_Sync now" Command="{Binding SyncNowCommand}"
+                            ToolTip="Apply your main setup to this account again" Margin="0,0,10,0" />
+                    <Button Style="{StaticResource HexButton}" Content="_Use this account as main" Command="{Binding UseThisAccountCommand}"
+                            ToolTip="Replace your main setup with this account's settings" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Warnings (only when present) ===== -->
+        <Border BorderBrush="{StaticResource DangerBrush}" BorderThickness="1,0,0,0" Padding="12,4" Margin="0,0,0,18"
+                Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibility}}">
+            <ItemsControl ItemsSource="{Binding Warnings}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Style="{StaticResource MutedText}" Foreground="{StaticResource TextSoftBrush}" Margin="0,2" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+
+        <Rectangle Style="{StaticResource Divider}" Margin="0,0,0,18" />
+
+        <!-- ===== What syncs ===== -->
+        <TextBlock Text="What syncs" Style="{StaticResource HeadingText}" Margin="0,0,0,14" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ItemsControl ItemsSource="{Binding AccountSections}" ItemTemplate="{StaticResource SectionToggleTemplate}" Focusable="False" />
+            <ItemsControl Grid.Column="1" ItemsSource="{Binding ExtraSections}" ItemTemplate="{StaticResource SectionToggleTemplate}" Focusable="False" />
+        </Grid>
+
+        <Rectangle Style="{StaticResource Divider}" Margin="0,4,0,18" />
+
+        <!-- ===== Footer ===== -->
+        <DockPanel LastChildFill="False">
+            <Button DockPanel.Dock="Left" Style="{StaticResource HexButton}" Content="_Edit setup" Command="{Binding EditCommand}"
+                    ToolTip="Change individual settings and choose which ones sync" Margin="0,0,10,0" />
+            <Button DockPanel.Dock="Left" Style="{StaticResource HexButton}" Content="_Backups" Command="{Binding BackupsCommand}"
+                    ToolTip="Restore an account's settings from before a sync" />
+            <CheckBox DockPanel.Dock="Right" Style="{StaticResource HexCheckBox}" Content="Start with Windows" VerticalAlignment="Center"
+                      IsChecked="{Binding StartWithWindows}" />
+        </DockPanel>
+        <TextBlock Style="{StaticResource MutedText}" Margin="0,14,0,0"
+                   Text="Closing this window keeps syncing in the background. Quit from the tray icon." />
+    </StackPanel>
+</controls:HexWindow>

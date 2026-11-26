@@ -75,6 +75,14 @@ public sealed class AppDataStoreTests : IDisposable
     }
 
     [Fact]
+    public void Data_dir_override_wins_over_appdata()
+    {
+        Assert.Equal(_root, AppDataStore.ResolveRoot(_root));
+        Assert.EndsWith("LolConfigSync", AppDataStore.ResolveRoot(null));
+        Assert.EndsWith("LolConfigSync", AppDataStore.ResolveRoot("  "));
+    }
+
+    [Fact]
     public void Backups_listed_newest_first()
     {
         var t0 = new DateTimeOffset(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
