@@ -11,11 +11,12 @@
     <Version>1.0.0</Version>
   </PropertyGroup>
 
-  <!-- dotnet publish -c Release: one LolConfigSync.exe (needs the .NET 10 Desktop Runtime) -->
+  <!-- dotnet publish -c Release: one self-contained LolConfigSync.exe; no .NET install needed to run it -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DebugType>none</DebugType>
   </PropertyGroup>

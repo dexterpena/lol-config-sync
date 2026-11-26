@@ -18,17 +18,24 @@ Graphics (resolution, window mode, quality) aren't stored per account by Riot. T
 
 If you'd previously made `PersistedSettings.json` read-only to stop League overwriting it, the app turns that off (keeping a copy) so League can save your settings again.
 
+## Install
+
+There are two downloads. Neither needs .NET installed.
+
+- **`LolConfigSync-Setup-<version>.exe` (recommended):** installs for your Windows user to `%LOCALAPPDATA%\Programs\LoL Config Sync` (no admin prompt) and adds a Start menu shortcut. It shows up in Windows' Installed apps for uninstalling. Uninstalling removes the startup entry and asks before deleting your saved setup and backups. You can choose an all-users install in the setup window instead. Data then goes to `%APPDATA%\LolConfigSync`, because Program Files isn't writable.
+- **`LolConfigSync-<version>-portable.zip`:** extract it wherever you like (a USB stick, a games folder). You get a `LoL Config Sync` folder. Run `LolConfigSync.exe` inside it, and your data stays in that folder.
+
 ## Build
 
-Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`).
+Requires the .NET 10 SDK (`winget install Microsoft.DotNet.SDK.10`). Building the installer also needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`).
 
 ```powershell
 dotnet test                                   # 147 unit tests (Core)
 dotnet run --project src/LolConfigSync.App    # run from source
-dotnet publish src/LolConfigSync.App -c Release
+powershell -ExecutionPolicy Bypass -File build\package.ps1   # tests, then both downloads into .\dist
 ```
 
-Publishing produces a single `LolConfigSync.exe` in `src/LolConfigSync.App/bin/Release/net10.0-windows/win-x64/publish/`. It needs the .NET 10 Desktop Runtime, which the SDK installs.
+`build\package.ps1` publishes a self-contained single-file `LolConfigSync.exe`, zips the portable folder and compiles `installer\LolConfigSync.iss`. The version comes from `<Version>` in `src/LolConfigSync.App/LolConfigSync.App.csproj`.
 
 ## Where things live
 
