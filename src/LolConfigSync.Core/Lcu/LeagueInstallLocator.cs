@@ -9,11 +9,11 @@ public static class LeagueInstallLocator
 {
     public const string DefaultInstallDir = @"C:\Riot Games\League of Legends";
 
-    public static string? Locate(string? riotClientInstallsJson, string? runningClientExePath, Func<string, bool> dirExists)
+    public static string? Locate(string? riotClientInstallsJson, string? runningClientExePath, Func<string, bool> isLeagueInstall)
     {
         foreach (var candidate in Candidates(riotClientInstallsJson, runningClientExePath))
         {
-            if (dirExists(candidate)) return candidate;
+            if (isLeagueInstall(candidate)) return candidate;
         }
         return null;
     }
@@ -29,17 +29,20 @@ public static class LeagueInstallLocator
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
 
-        return Locate(installsJson, RunningClientExePath(), Directory.Exists);
+        return Locate(installsJson, RunningClientExePath(), IsLeagueInstall);
     }
+
+    public static bool IsLeagueInstall(string dir) =>
+        Path.IsPathFullyQualified(dir) && File.Exists(Path.Combine(dir, "LeagueClient.exe"));
 
     private static IEnumerable<string> Candidates(string? installsJson, string? runningExe)
     {
-        foreach (var dir in FromInstallsJson(installsJson)) yield return dir;
         if (!string.IsNullOrEmpty(runningExe))
         {
             var dir = Path.GetDirectoryName(runningExe);
             if (!string.IsNullOrEmpty(dir)) yield return dir;
         }
+        foreach (var dir in FromInstallsJson(installsJson)) yield return dir;
         yield return DefaultInstallDir;
     }
 
@@ -48,10 +51,10 @@ public static class LeagueInstallLocator
         if (string.IsNullOrWhiteSpace(json)) return [];
         try
         {
-            if (JsonNode.Parse(json)?["associated_client"] is not JsonObject clients) return [];
+            if (JsonNode.Parse(json) is not JsonObject root || root["associated_client"] is not JsonObject clients) return [];
             return clients
                 .Select(kv => kv.Key)
-                .Where(k => k.Contains("League of Legends", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(k => k.Contains("League of Legends", StringComparison.OrdinalIgnoreCase))
                 .Select(Normalize)
                 .ToList();
         }

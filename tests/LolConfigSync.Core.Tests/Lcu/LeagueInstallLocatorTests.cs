@@ -31,4 +31,29 @@ public class LeagueInstallLocatorTests
     {
         Assert.Equal(@"E:\LoL", LeagueInstallLocator.Locate("{not json", @"E:\LoL\LeagueClientUx.exe", _ => true));
     }
+
+    [Fact]
+    public void Running_client_wins_when_multiple_installs_exist()
+    {
+        var json = """{"associated_client":{"D:/League of Legends/":"riot"}}""";
+        Assert.Equal(@"F:\Games\Live", LeagueInstallLocator.Locate(json, @"F:\Games\Live\LeagueClientUx.exe", _ => true));
+    }
+
+    [Fact]
+    public void Recognizes_custom_folder_and_rejects_leftover_directories()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var stale = root.CreateSubdirectory("League of Legends");
+            var custom = root.CreateSubdirectory("My Games");
+            File.WriteAllText(Path.Combine(custom.FullName, "LeagueClient.exe"), "");
+            var json = new System.Text.Json.Nodes.JsonObject
+            {
+                ["associated_client"] = new System.Text.Json.Nodes.JsonObject { [stale.FullName] = "riot", [custom.FullName] = "riot" }
+            };
+            Assert.Equal(custom.FullName, LeagueInstallLocator.Locate(json.ToJsonString(), null, LeagueInstallLocator.IsLeagueInstall));
+        }
+        finally { root.Delete(recursive: true); }
+    }
 }

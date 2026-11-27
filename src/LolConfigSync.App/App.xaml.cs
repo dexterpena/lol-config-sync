@@ -78,7 +78,7 @@ public partial class App : Application, IAppShell
     private string? ResolveInstallDir()
     {
         var settings = _store.LoadSettings();
-        var dir = settings.InstallDirOverride is { } custom && Directory.Exists(custom)
+        var dir = settings.InstallDirOverride is { } custom && LeagueInstallLocator.IsLeagueInstall(custom)
             ? custom
             : LeagueInstallLocator.LocateOnThisMachine();
         if (dir is not null) return dir;
@@ -94,7 +94,7 @@ public partial class App : Application, IAppShell
         {
             var picker = new OpenFolderDialog { Title = "Choose the League of Legends folder" };
             if (picker.ShowDialog() != true) return null;
-            if (File.Exists(Path.Combine(picker.FolderName, "LeagueClient.exe")) || Directory.Exists(Path.Combine(picker.FolderName, "Config")))
+            if (LeagueInstallLocator.IsLeagueInstall(picker.FolderName))
             {
                 settings.InstallDirOverride = picker.FolderName;
                 _store.SaveSettings(settings);

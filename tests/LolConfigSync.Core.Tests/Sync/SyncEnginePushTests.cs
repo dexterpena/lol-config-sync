@@ -15,6 +15,26 @@ public sealed class SyncEnginePushTests : IDisposable
 
     private FakeLeagueGateway AltGateway() => new(Alt, AltState());
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Party_preferences_do_not_downgrade_newer_account_schema(bool alreadyMatches)
+    {
+        const string category = "lol-parties-game-select";
+        _h.SeedMainSetup(s => s.ClientSettings[category] = Obj("""{"data":{"seen":true},"schemaVersion":0}"""));
+        var gw = AltGateway();
+        var current = Obj("""{"data":{"seen":false,"history":{"1840":1}},"schemaVersion":1}""");
+        current["data"]!["seen"] = alreadyMatches;
+        gw.State.Client[category] = current;
+
+        await _h.Engine.OnConnectedAsync(gw, default);
+
+        Assert.DoesNotContain($"PATCH client {category}", gw.Calls);
+        Assert.Contains("PATCH client lol-perks", gw.Calls);
+        Assert.Equal(!alreadyMatches, _h.Engine.Status.Warnings.Any(w => w.Contains(category)));
+        Assert.Equal(1, gw.State.Client[category]["schemaVersion"]!.GetValue<int>());
+    }
+
     [Fact]
     public async Task First_run_prompt_yes_adopts_account()
     {

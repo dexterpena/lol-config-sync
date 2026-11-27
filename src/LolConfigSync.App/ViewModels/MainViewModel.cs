@@ -221,6 +221,8 @@ public sealed class MainViewModel : ObservableObject
     // ---- who's logged in ----
     private ImageSource? _accountIcon;
     private (string Puuid, int Icon)? _iconFor;
+    private bool _iconLoading;
+    private long _iconRequest;
 
     public string AccountName => _host.Engine.Status.Account?.RiotId ?? "Nobody logged in";
 
@@ -242,23 +244,36 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasAccountIcon => _accountIcon is not null;
 
-    private async void RefreshAccountIcon()
+    private void RefreshAccountIcon()
     {
         var account = _host.Engine.Status.Account;
-        var key = account is null ? ((string, int)?)null : (account.Puuid, account.ProfileIconId);
-        if (key == _iconFor) return;
+        var key = account is null || account.ProfileIconId <= 0 ? ((string, int)?)null : (account.Puuid, account.ProfileIconId);
+        if (key == _iconFor)
+        {
+            // The first request can fail while League is still logging in; try again on the next refresh.
+            if (key is { } pending && AccountIcon is null && !_iconLoading) LoadAccountIcon(pending);
+            return;
+        }
         _iconFor = key;
+        _iconRequest++;
+        _iconLoading = false;
         AccountIcon = null;
-        if (account is null || account.ProfileIconId <= 0) return;
+        if (key is { } current) LoadAccountIcon(current);
+    }
 
-        var bytes = await _host.GetProfileIconAsync(account.ProfileIconId);
-        if (bytes is null || _iconFor != key) return;
+    private async void LoadAccountIcon((string Puuid, int Icon) key)
+    {
+        var request = _iconRequest;
+        _iconLoading = true;
         try
         {
+            var bytes = await _host.GetProfileIconAsync(key.Icon);
+            if (bytes is null || request != _iconRequest) return;
+            using var stream = new MemoryStream(bytes);
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
-            image.StreamSource = new MemoryStream(bytes);
+            image.StreamSource = stream;
             image.DecodePixelWidth = 96;
             image.EndInit();
             image.Freeze();
@@ -266,7 +281,11 @@ public sealed class MainViewModel : ObservableObject
         }
         catch (Exception e) when (e is NotSupportedException or IOException or FileFormatException)
         {
-            AccountIcon = null;
+            FileLog.Error($"Could not decode League profile icon {key.Icon}", e);
+        }
+        finally
+        {
+            if (request == _iconRequest) _iconLoading = false;
         }
     }
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 The release workflow uses each version's section below as that release's notes on GitHub.
 
+## [1.0.2] - 2026-11-27
+
+- League detection prefers the running client and recognizes custom installation folders. Leftover folders from old installs are ignored.
+- Sync skips client preferences the account already has. If a preference differs and the account uses a different format, the app explains why it skipped that preference.
+- The profile picture retries if League wasn't ready the first time it was requested.
+
 ## [1.0.1] - 2026-11-26
 
 - Switching League accounts cancels the previous account's sync and discards its queued settings changes.

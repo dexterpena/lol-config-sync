@@ -492,6 +492,22 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             foreach (var category in SectionMap.ClientSettingsCategories)
             {
                 if (source.ClientSettings[category] is not JsonObject value) continue;
+                if (backup.ClientSettings[category] is JsonObject current)
+                {
+                    if (JsonNode.DeepEquals(value, current)) continue;
+                    // A normal PATCH only needs to apply the saved keys. Newer clients can
+                    // already have all of them plus extra per-account fields.
+                    if (!restoring && value["data"] is JsonObject desired && current["data"] is JsonObject existing &&
+                        desired.All(pair => existing.TryGetPropertyValue(pair.Key, out var v) && JsonNode.DeepEquals(pair.Value, v)))
+                        continue;
+                    if (current["schemaVersion"] is { } version && value["schemaVersion"] is { } savedVersion &&
+                        !JsonNode.DeepEquals(version, savedVersion))
+                    {
+                        warnings.Add($"Skipped {category}: this account uses a different preference format.");
+                        allOk = false;
+                        continue;
+                    }
+                }
                 allOk &= await TryAsync($"Client settings ({category})", warnings,
                     () => gateway.PatchClientSettingAsync(category, (JsonObject)value.DeepClone(), ct)).ConfigureAwait(false);
             }
