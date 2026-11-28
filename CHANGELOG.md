@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 The release workflow uses each version's section below as that release's notes on GitHub.
 
+## [1.0.3] - 2026-11-28
+
+- A brand-new account now receives your saved client preferences (champ select, general, notifications, runes). 1.0.2 wrongly skipped them as a "different format". Only preferences that would downgrade an account are skipped.
+- If League rejects one client preference category, edits to the other categories still sync back to the shared setup. A successful retry also resumes syncing edits to the affected category.
+
 ## [1.0.2] - 2026-11-27
 
 - League detection prefers the running client and recognizes custom installation folders. Leftover folders from old installs are ignored.

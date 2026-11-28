@@ -36,6 +36,21 @@ public sealed class SyncEnginePushTests : IDisposable
     }
 
     [Fact]
+    public async Task Fresh_account_on_older_schema_still_receives_saved_preferences()
+    {
+        const string category = "lol-general";
+        _h.SeedMainSetup(s => s.ClientSettings[category] = Obj("""{"data":{"uploadCrashReports":false},"schemaVersion":1}"""));
+        var gw = AltGateway();
+        gw.State.Client[category] = Obj("""{"data":{"uploadCrashReports":true},"schemaVersion":0}""");
+
+        await _h.Engine.OnConnectedAsync(gw, default);
+
+        Assert.Contains($"PATCH client {category}", gw.Calls);
+        Assert.DoesNotContain(_h.Engine.Status.Warnings, w => w.Contains(category));
+        Assert.False(gw.State.Client[category]["data"]!["uploadCrashReports"]!.GetValue<bool>());
+    }
+
+    [Fact]
     public async Task First_run_prompt_yes_adopts_account()
     {
         var gw = new FakeLeagueGateway(Main, MainState());

@@ -2,7 +2,7 @@
 ; Built by build\package.ps1, which passes /DAppVersion=... and /DPublishDir=...
 
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\dist\stage"

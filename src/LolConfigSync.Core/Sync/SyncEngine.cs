@@ -41,6 +41,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
     private string? _pushedPuuid;
     private DateTimeOffset _pushCompletedAt;
     private readonly HashSet<SyncSection> _pushedSections = [];
+    private IReadOnlyCollection<string> _capturableClientCategories = [];
     private int? _runeCapacityShortfall;
 
     private readonly Dictionary<SettingKey, JsonNode?> _pendingValues = [];
@@ -146,7 +147,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
                 break;
             case var uri when uri.StartsWith(LeagueGateway.ClientSettingsPrefix, StringComparison.Ordinal):
                 var category = uri[LeagueGateway.ClientSettingsPrefix.Length..];
-                if (SectionMap.ClientSettingsCategories.Contains(category))
+                if (_capturableClientCategories.Contains(category))
                 {
                     QueueFlag(SyncSection.ClientSettings, () => _pendingClient.Add(category));
                 }
@@ -348,7 +349,8 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
 
         ct.ThrowIfCancellationRequested();
         store.SaveMainSetup(snapshot);
-        MarkPushed(account, AllSections, runeShortfallCapacity: null);
+        MarkPushed(account, AllSections, failed.Contains(SnapshotPart.Client) ? [] : SectionMap.ClientSettingsCategories,
+            runeShortfallCapacity: null);
         SetStatus(SyncState.Synced, account, lastSync: time.GetUtcNow(), warnings: warnings);
         Notify?.Invoke($"Main setup saved from {account.RiotId}");
     }
@@ -486,9 +488,11 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         }
 
         // Client preferences.
+        var capturableClientCategories = new HashSet<string>();
         if (settings.IsEnabled(SyncSection.ClientSettings) && !Skipped(SnapshotPart.Client, "Client settings"))
         {
-            var allOk = true;
+            // A category with no saved value can still be populated by a later client edit.
+            capturableClientCategories.UnionWith(SectionMap.ClientSettingsCategories);
             foreach (var category in SectionMap.ClientSettingsCategories)
             {
                 if (source.ClientSettings[category] is not JsonObject value) continue;
@@ -500,22 +504,24 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
                     if (!restoring && value["data"] is JsonObject desired && current["data"] is JsonObject existing &&
                         desired.All(pair => existing.TryGetPropertyValue(pair.Key, out var v) && JsonNode.DeepEquals(pair.Value, v)))
                         continue;
-                    if (current["schemaVersion"] is { } version && value["schemaVersion"] is { } savedVersion &&
-                        !JsonNode.DeepEquals(version, savedVersion))
+                    // League rejects a write that would downgrade an account's preference format. A newer saved
+                    // format (e.g. onto a brand-new account still at version 0) is fine and gets upgraded.
+                    if (SchemaVersion(current) > SchemaVersion(value))
                     {
                         warnings.Add($"Skipped {category}: this account uses a different preference format.");
-                        allOk = false;
+                        capturableClientCategories.Remove(category);
                         continue;
                     }
                 }
-                allOk &= await TryAsync($"Client settings ({category})", warnings,
+                var applied = await TryAsync($"Client settings ({category})", warnings,
                     () => gateway.PatchClientSettingAsync(category, (JsonObject)value.DeepClone(), ct)).ConfigureAwait(false);
+                if (!applied) capturableClientCategories.Remove(category);
             }
-            if (allOk) pushed.Add(SyncSection.ClientSettings);
+            pushed.Add(SyncSection.ClientSettings);
         }
 
         ct.ThrowIfCancellationRequested(); // the client went away mid-push: don't report success
-        MarkPushed(account, pushed, shortfallCapacity);
+        MarkPushed(account, pushed, capturableClientCategories, shortfallCapacity);
         SetStatus(SyncState.Synced, account, lastSync: time.GetUtcNow(), warnings: warnings);
         foreach (var w in warnings) FileLog.Info($"Sync to {account.RiotId}: {w}");
 
@@ -524,6 +530,9 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
             ? message
             : $"{message} ({warnings.Count} warning{(warnings.Count == 1 ? "" : "s")})");
     }
+
+    private static int SchemaVersion(JsonObject setting) =>
+        setting["schemaVersion"]?.GetValueKind() == System.Text.Json.JsonValueKind.Number ? setting["schemaVersion"]!.GetValue<int>() : 0;
 
     /// <summary>
     /// Reads settings back after a push. Sections League didn't keep are excluded from capture,
@@ -572,12 +581,15 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         return plan.UsableSlots;
     }
 
-    private void MarkPushed(Account account, IEnumerable<SyncSection> sections, int? runeShortfallCapacity)
+    private void MarkPushed(Account account, IEnumerable<SyncSection> sections,
+        IReadOnlyCollection<string> capturableClientCategories, int? runeShortfallCapacity)
     {
         _pushedPuuid = account.Puuid;
         _pushCompletedAt = time.GetUtcNow();
         _pushedSections.Clear();
         _pushedSections.UnionWith(sections);
+        _capturableClientCategories = capturableClientCategories;
+        _pendingClient.IntersectWith(capturableClientCategories);
         _runeCapacityShortfall = runeShortfallCapacity;
     }
 
@@ -824,6 +836,7 @@ public sealed class SyncEngine(IVideoSettingsFile video, AppDataStore store, Tim
         _account = null;
         _pushedPuuid = null;
         _pushedSections.Clear();
+        _capturableClientCategories = [];
         _runeCapacityShortfall = null;
         _pushPending = false;
         _promptPending = false;

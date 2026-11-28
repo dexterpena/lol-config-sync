@@ -8,7 +8,7 @@
     <AssemblyName>LolConfigSync</AssemblyName>
     <AssemblyTitle>LoL Config Sync</AssemblyTitle>
     <Product>LoL Config Sync</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
   </PropertyGroup>
 
   <!-- dotnet publish -c Release: one self-contained LolConfigSync.exe; no .NET install needed to run it -->

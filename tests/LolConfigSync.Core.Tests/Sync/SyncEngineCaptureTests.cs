@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using LolConfigSync.Core.League;
 using LolConfigSync.Core.Model;
 using LolConfigSync.Core.Sync;
 using LolConfigSync.Core.Tests.Fakes;
@@ -142,6 +143,47 @@ public sealed class SyncEngineCaptureTests : IDisposable
         await AdvanceAndFlushAsync(TimeSpan.FromSeconds(4));
 
         Assert.False(_h.Store.LoadMainSetup()!.ClientSettings.ContainsKey("lol-loot"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Client_preference_failure_is_isolated_and_capture_recovers_after_retry(bool incompatibleFormat)
+    {
+        const string party = "lol-parties-game-select";
+        const string perks = "lol-perks";
+        const string prefix = LeagueGateway.ClientSettingsPrefix;
+        _h.SeedMainSetup(s => s.ClientSettings[party] = Obj("""{"data":{"seen":true},"schemaVersion":1}"""));
+        var gw = new FakeLeagueGateway(Alt, AltState());
+        gw.State.Client[party] = Obj("""{"data":{"seen":false},"schemaVersion":1}""");
+        if (incompatibleFormat) gw.State.Client[party]["schemaVersion"] = 2;
+        else
+        {
+            // Perks already match, so only the party preference needs a write.
+            gw.State.Client[perks] = Obj("""{"data":{"x":1},"schemaVersion":1}""");
+            gw.FailingCategories.Add("client");
+        }
+        await _h.Engine.OnConnectedAsync(gw, default);
+        Assert.Contains(_h.Engine.Status.Warnings, w => w.Contains(party));
+        _h.Time.Advance(SyncEngine.PostPushSettle);
+
+        gw.State.Client[perks]["data"]!["x"] = 2;
+        await _h.Engine.HandleLcuEventAsync(Event(prefix + perks, null), default);
+        await _h.Engine.HandleLcuEventAsync(Event(prefix + party, null), default);
+        await AdvanceAndFlushAsync(SyncEngine.CaptureDebounce);
+        var preferences = _h.Store.LoadMainSetup()!.ClientSettings;
+        Assert.Equal(2, preferences[perks]!["data"]!["x"]!.GetValue<int>());
+        Assert.True(preferences[party]!["data"]!["seen"]!.GetValue<bool>());
+
+        gw.FailingCategories.Clear();
+        gw.State.Client[party]["schemaVersion"] = 1;
+        await _h.Engine.PushMainSetupAsync(default);
+        Assert.Empty(_h.Engine.Status.Warnings);
+        _h.Time.Advance(SyncEngine.PostPushSettle);
+        gw.State.Client[party]["data"]!["seen"] = false;
+        await _h.Engine.HandleLcuEventAsync(Event(prefix + party, null), default);
+        await AdvanceAndFlushAsync(SyncEngine.CaptureDebounce);
+        Assert.False(_h.Store.LoadMainSetup()!.ClientSettings[party]!["data"]!["seen"]!.GetValue<bool>());
     }
 
     [Fact]
